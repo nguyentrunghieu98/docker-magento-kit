@@ -1,0 +1,14 @@
+## Service db for KIT_DB_ENGINE=mariadb. Loaded by bin/docker-compose.
+services:
+  db:
+    image: mariadb:${KIT_DB_VERSION:-11.4}
+    command:
+      --max_allowed_packet=64M
+      --optimizer_use_condition_selectivity=1
+      --optimizer_switch="rowid_filter=off"
+      --log_bin_trust_function_creators=1
+    ports:
+      - "${KIT_DB_PORT:-3306}:3306"
+    env_file: env/db.env
+    volumes:
+      - dbdata:/var/lib/mysql

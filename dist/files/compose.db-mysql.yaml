@@ -1,0 +1,12 @@
+## Service db for KIT_DB_ENGINE=mysql. Loaded by bin/docker-compose.
+services:
+  db:
+    image: mysql:${KIT_DB_VERSION:-8.4}
+    command:
+      --max_allowed_packet=64M
+      --log_bin_trust_function_creators=1
+    ports:
+      - "${KIT_DB_PORT:-3306}:3306"
+    env_file: env/db.env
+    volumes:
+      - dbdata:/var/lib/mysql

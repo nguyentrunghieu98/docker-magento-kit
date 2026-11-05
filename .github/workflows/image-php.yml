@@ -1,0 +1,148 @@
+name: image-php
+
+# Chỉ chạy khi thư mục image đổi. Tăng images/php/IMAGE_VERSION cho mỗi thay đổi.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'images/php/**'
+      - '.github/workflows/image-php.yml'
+  pull_request:
+    paths:
+      - 'images/php/**'
+      - '.github/workflows/image-php.yml'
+  workflow_dispatch:
+
+env:
+  IMAGE: ghcr.io/nguyentrunghieu98/magento-php
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      n: ${{ steps.v.outputs.n }}
+      versions: ${{ steps.v.outputs.versions }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Đọc số image và phiên bản PHP
+        id: v
+        run: |
+          n=$(tr -d '[:space:]' < images/php/IMAGE_VERSION)
+          [[ "$n" =~ ^[1-9][0-9]*$ ]] || { echo "IMAGE_VERSION không hợp lệ: $n"; exit 1; }
+          echo "n=$n" >> "$GITHUB_OUTPUT"
+          echo "versions=$(jq -c 'to_entries | map({php: .key, full: .value})' images/php/versions.json)" >> "$GITHUB_OUTPUT"
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Từ chối tag đã tồn tại
+        if: github.event_name != 'pull_request'
+        run: |
+          n=${{ steps.v.outputs.n }}
+          for php in $(jq -r 'keys[]' images/php/versions.json); do
+            for suffix in "" "-xdebug"; do
+              tag="$php-fpm-$n$suffix"
+              if docker buildx imagetools inspect "$IMAGE:$tag" >/dev/null 2>&1; then
+                echo "::error::Tag $tag đã tồn tại. Tăng images/php/IMAGE_VERSION, không build đè."
+                exit 1
+              fi
+            done
+          done
+
+  build:
+    needs: prepare
+    strategy:
+      fail-fast: true
+      matrix:
+        php: ${{ fromJson(needs.prepare.outputs.versions) }}
+        target: [base, xdebug]
+        arch: [amd64, arm64]
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build để kiểm (nạp vào daemon cục bộ)
+        uses: docker/build-push-action@v6
+        with:
+          context: images/php
+          target: ${{ matrix.target }}
+          build-args: PHP_VERSION=${{ matrix.php.full }}
+          load: true
+          tags: kit-php:test
+          cache-from: type=gha,scope=${{ matrix.php.php }}-${{ matrix.target }}-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.php.php }}-${{ matrix.target }}-${{ matrix.arch }}
+      - name: Seam S3
+        run: images/php/test/s3.sh kit-php:test ${{ matrix.target == 'base' && 'main' || 'xdebug' }}
+      - uses: docker/login-action@v3
+        if: github.event_name != 'pull_request'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Đẩy theo digest, chưa gắn tag
+        id: push
+        if: github.event_name != 'pull_request'
+        uses: docker/build-push-action@v6
+        with:
+          context: images/php
+          target: ${{ matrix.target }}
+          build-args: PHP_VERSION=${{ matrix.php.full }}
+          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=${{ matrix.php.php }}-${{ matrix.target }}-${{ matrix.arch }}
+      - name: Lưu digest
+        if: github.event_name != 'pull_request'
+        run: |
+          mkdir -p /tmp/digests
+          digest="${{ steps.push.outputs.digest }}"
+          touch "/tmp/digests/${digest#sha256:}"
+      - uses: actions/upload-artifact@v4
+        if: github.event_name != 'pull_request'
+        with:
+          name: digests-${{ matrix.php.php }}-${{ matrix.target }}-${{ matrix.arch }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  manifest:
+    needs: [prepare, build]
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        php: ${{ fromJson(needs.prepare.outputs.versions) }}
+        target: [base, xdebug]
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: digests-${{ matrix.php.php }}-${{ matrix.target }}-*
+          path: /tmp/digests
+          merge-multiple: true
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Gộp manifest đa kiến trúc
+        working-directory: /tmp/digests
+        run: |
+          tag="${{ matrix.php.php }}-fpm-${{ needs.prepare.outputs.n }}${{ matrix.target == 'xdebug' && '-xdebug' || '' }}"
+          # Kiểm lại ngay trước khi gắn tag, phòng hai lần chạy song song
+          if docker buildx imagetools inspect "$IMAGE:$tag" >/dev/null 2>&1; then
+            echo "::error::Tag $tag đã tồn tại, không build đè."
+            exit 1
+          fi
+          docker buildx imagetools create -t "$IMAGE:$tag" \
+            $(printf "$IMAGE@sha256:%s " *)
+          docker buildx imagetools inspect "$IMAGE:$tag"

@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+set -o errexit
+
+KIT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+cd "$KIT_ROOT"
+# shellcheck source=bin/lib/profile.sh
+source "$KIT_ROOT/bin/lib/profile.sh"
+kit_profile_load "$KIT_ROOT" || exit 1
+
+# Domain lấy từ tham số, không có thì lấy KIT_DOMAIN trong project/profile.env.
+if [[ -z "${1:-}" ]]; then
+  kit_profile_require KIT_DOMAIN || { echo "Hoặc truyền domain làm tham số (ex. magento.test)" >&2; exit 1; }
+fi
+DOMAIN=${1:-$KIT_DOMAIN}
+
+if ! grep -q "$DOMAIN" /etc/hosts; then
+    echo "Your system password is needed to add an entry to /etc/hosts..."
+    echo "127.0.0.1 ::1 $DOMAIN" | sudo tee -a /etc/hosts
+fi
+
+echo "Set https://${DOMAIN}/ to web/secure/base_url and web/unsecure/base_url"
+bin/clinotty bin/magento config:set web/secure/base_url https://"$DOMAIN"/
+bin/clinotty bin/magento config:set web/unsecure/base_url https://"$DOMAIN"/
+
+echo "Generating SSL certificate..."
+bin/setup-ssl "$DOMAIN"

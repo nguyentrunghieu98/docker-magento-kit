@@ -1,0 +1,397 @@
+#!/usr/bin/env bash
+# bin/agent - cài kit agent vào một checkout (Docker root, src/ hoặc worktree).
+#
+#   bin/agent install [--target <thư mục>] [--force]
+#
+# Nguồn: agent/ của gói và project/agent/ của dự án. Đích mặc định là thư mục hiện tại.
+# Sinh ra ở đích:
+#   AGENTS.md    từ agent/AGENTS.template.md cộng giá trị trong project/profile.env,
+#                kèm project/agent/AGENTS.project.md ở cuối (tối đa 20 dòng)
+#   CLAUDE.md    từ agent/CLAUDE.template.md, gồm @AGENTS.md
+#   .claude/skills/<tên>/ và .agents/skills/<tên>/   skill của gói và của dự án
+#   .claude/agents/<tên>.md                          role cho Claude Code, model là alias
+#   ${CODEX_HOME:-~/.codex}/agents/magento-*.toml    role cho Codex, model tách từ <model>:<effort>
+# Role: agent/roles/ và project/agent/roles/ dùng chung một cơ chế, role trùng tên thì
+# dừng trước khi ghi gì. Hạng model đọc từ agent/models.env, ghi đè từng ô bằng
+# KIT_MODEL_<HARNESS>_<HẠNG> trong project/profile.env.
+#
+# File sinh ra mang dấu `kit:generated` ở dòng đầu. File đã có mà không mang dấu, hoặc
+# đã được Git theo dõi ở đích, được giữ nguyên và báo cảnh báo (--force ghi đè file
+# không mang dấu, không bao giờ ghi đè file đã theo dõi).
+set -Eeuo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+PACK_AGENT="$PROJECT_ROOT/agent"
+PROJECT_AGENT="$PROJECT_ROOT/project/agent"
+MARK='kit:generated'
+PROJECT_MD_MAX=20
+
+# shellcheck source=bin/lib/profile.sh
+source "$SCRIPT_DIR/lib/profile.sh"
+
+info() { printf '%s\n' "$*"; }
+warn() { printf 'CẢNH BÁO: %s\n' "$*" >&2; }
+die() { printf 'LỖI: %s\n' "$*" >&2; exit 1; }
+
+usage() {
+  cat <<'USAGE'
+Cách dùng: bin/agent install [--target <thư mục>] [--force]
+
+  install    Sinh AGENTS.md, CLAUDE.md, cài skill và role của gói và của dự án vào
+             thư mục đích (mặc định: thư mục hiện tại). Adapter Claude Code ghi vào
+             .claude/agents/, adapter Codex ghi vào ${CODEX_HOME:-~/.codex}/agents/
+  --force    Ghi đè file đã có mà không do bin/agent sinh
+
+Hạng model của role đọc từ agent/models.env. Ghi đè từng ô trong
+project/profile.env bằng KIT_MODEL_<HARNESS>_<HẠNG>, ví dụ KIT_MODEL_CODEX_DEEP.
+USAGE
+}
+
+# is_tracked <đích> <đường dẫn tương đối>: file đã được Git theo dõi ở đích.
+is_tracked() {
+  git -C "$1" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
+    && git -C "$1" ls-files --error-unmatch -- "$2" >/dev/null 2>&1
+}
+
+# list_names <thư mục> <f|d>: tên (bỏ .md với file) của mục con, mỗi tên một dòng.
+list_names() {
+  local dir="$1" kind="$2" entry
+  [[ -d "$dir" ]] || return 0
+  for entry in "$dir"/*; do
+    [[ -e "$entry" ]] || continue
+    case "$kind" in
+      f) [[ -f "$entry" && "$entry" == *.md ]] && basename "$entry" .md ;;
+      d) [[ -d "$entry" ]] && basename "$entry" ;;
+    esac
+  done
+  return 0
+}
+
+# check_collisions <loại> <thư mục gói> <thư mục dự án> <f|d>: dừng khi tên của dự
+# án trùng tên của gói.
+check_collisions() {
+  local label="$1" pack_dir="$2" project_dir="$3" kind="$4" name found=0
+  while IFS= read -r name; do
+    [[ -n "$name" ]] || continue
+    if list_names "$pack_dir" "$kind" | grep -Fqx -- "$name"; then
+      warn "$label '$name' của dự án trùng tên $label của gói ($project_dir)"
+      found=1
+    fi
+  done < <(list_names "$project_dir" "$kind")
+  [[ "$found" -eq 0 ]] || die "Đổi tên $label của dự án rồi chạy lại, chưa ghi gì"
+}
+
+# writable <đích> <rel> <force>: trả 0 khi được ghi file sinh ra tại <đích>/<rel>.
+writable() {
+  local dest="$1" rel="$2" force="$3" file="$1/$2"
+  if is_tracked "$dest" "$rel"; then
+    warn "$rel đã được Git theo dõi ở $dest, giữ nguyên"
+    return 1
+  fi
+  if [[ -e "$file" ]] && ! head -n 1 "$file" | grep -Fq "$MARK" && [[ "$force" -ne 1 ]]; then
+    warn "$rel đã có và không do bin/agent sinh, giữ nguyên (--force để ghi đè)"
+    return 1
+  fi
+  return 0
+}
+
+# write_file <đích> <rel> <nội dung>: ghi nguyên tử, chỉ ghi khi nội dung đổi.
+write_file() {
+  local dest="$1" rel="$2" content="$3" file="$1/$2" tmp
+  if [[ -f "$file" && "$(cat "$file")" == "$content" ]]; then
+    return 0
+  fi
+  tmp="$file.tmp.$$"
+  printf '%s\n' "$content" > "$tmp"
+  mv -f "$tmp" "$file"
+  info "Đã ghi $rel"
+}
+
+render_agents() {
+  local out replacement project_md="$PROJECT_AGENT/AGENTS.project.md" lines key value
+  out="$(cat "$PACK_AGENT/AGENTS.template.md")"
+  for key in KIT_PROJECT_NAME KIT_DOMAIN KIT_GIT_REMOTE KIT_GIT_BASE_BRANCH KIT_GIT_TARGET_BRANCH; do
+    value="${!key:-}"
+    [[ -n "$value" ]] || value='(chưa khai báo)'
+    out="${out//\{\{$key\}\}/$value}"
+  done
+  replacement="$PROJECT_ROOT"
+  out="${out//\{\{KIT_ROOT\}\}/$replacement}"
+  if [[ -f "$project_md" ]]; then
+    lines="$(wc -l < "$project_md" | tr -d ' ')"
+    if [[ "$lines" -gt "$PROJECT_MD_MAX" ]]; then
+      warn "project/agent/AGENTS.project.md dài $lines dòng, vượt giới hạn $PROJECT_MD_MAX, hãy chuyển phần dài sang project/agent/references/"
+    fi
+    out+=$'\n\n'"$(cat "$project_md")"
+  fi
+  printf '<!-- %s bởi bin/agent install, sửa project/agent/AGENTS.project.md thay vì file này -->\n%s' "$MARK" "$out"
+}
+
+render_claude() {
+  printf '<!-- %s bởi bin/agent install -->\n%s' "$MARK" "$(cat "$PACK_AGENT/CLAUDE.template.md")"
+}
+
+# install_skills <đích>: chép skill của gói rồi của dự án vào .claude/skills và
+# .agents/skills. Thư mục skill do gói quản lý mang file .kit-managed, thư mục khác
+# cùng tên được giữ nguyên.
+install_skills() {
+  local dest="$1" base name src target managed=() entry
+  for base in .claude/skills .agents/skills; do
+    mkdir -p "$dest/$base"
+    for src in "$PACK_AGENT/skills" "$PROJECT_AGENT/skills"; do
+      while IFS= read -r name; do
+        [[ -n "$name" ]] || continue
+        target="$dest/$base/$name"
+        if [[ -d "$target" && ! -f "$target/.kit-managed" ]] || is_tracked "$dest" "$base/$name/SKILL.md"; then
+          warn "$base/$name đã có và không do bin/agent quản lý, giữ nguyên"
+          continue
+        fi
+        rm -rf "$target"
+        mkdir -p "$target"
+        cp -R "$src/$name/." "$target/"
+        : > "$target/.kit-managed"
+        managed+=("$base/$name")
+      done < <(list_names "$src" d)
+    done
+    # Dọn skill do gói quản lý mà nguồn không còn.
+    for entry in "$dest/$base"/*/; do
+      [[ -f "${entry}.kit-managed" ]] || continue
+      name="${base}/$(basename "$entry")"
+      printf '%s\n' "${managed[@]:-}" | grep -Fqx -- "$name" || rm -rf "$entry"
+    done
+  done
+}
+
+# --------------------------------------------------------------------------
+# Role và adapter model
+# --------------------------------------------------------------------------
+
+# Hạng model mặc định nằm trong agent/models.env của gói. Ghi đè từng ô bằng
+# KIT_MODEL_<HARNESS>_<HẠNG> trong project/profile.env.
+LEGACY_ROLES='luna-worker magento-verifier magento-releaser magento-debugger'
+
+# role_field <file> <khóa>: đọc một khóa trong frontmatter, rỗng nếu không có.
+role_field() {
+  awk -v want="$2" '
+    /^---$/ { fence++; next }
+    fence == 1 {
+      if (index($0, want ":") == 1) {
+        line = $0
+        sub(/^[^:]*:[[:space:]]*/, "", line)
+        gsub(/^"|"$/, "", line)
+        print line
+        exit
+      }
+    }
+  ' "$1"
+}
+
+# role_body <file>: phần thân role, bỏ frontmatter.
+role_body() {
+  awk '/^---$/ { fence++; next } fence >= 2' "$1"
+}
+
+# claude_tools <permission>: danh sách tool cho adapter Claude Code.
+claude_tools() {
+  case "$1" in
+    read-only) printf 'Read, Grep, Glob, Bash' ;;
+    *) printf 'Read, Grep, Glob, Bash, Edit, Write' ;;
+  esac
+}
+
+# toml_escape <text>: escape chuỗi cho basic string của TOML.
+toml_escape() {
+  local text="${1//\\/\\\\}"
+  printf '%s' "${text//\"/\\\"}"
+}
+
+# model_for <harness> <hạng>: model thật, rỗng khi harness không có trong bảng.
+model_for() {
+  local harness="$1" tier="$2" key name value
+  key="KIT_MODEL_$(printf '%s_%s' "$harness" "$tier" | tr '[:lower:]-' '[:upper:]_')"
+  if [[ -n "${!key:-}" ]]; then printf '%s\n' "${!key}"; return 0; fi
+  [[ -f "$PACK_AGENT/models.env" ]] || return 0
+  while IFS='=' read -r name value; do
+    [[ -n "$name" && "$name" != '#'* ]] || continue
+    if [[ "$name" == "$harness.$tier" ]]; then printf '%s\n' "$value"; return 0; fi
+  done < "$PACK_AGENT/models.env"
+  return 0
+}
+
+# adapter_writable <thư mục> <rel> <force>: như writable nhưng nhận diện file do
+# bin/agent sinh bằng dấu kit:generated ở bất kỳ dòng nào.
+adapter_writable() {
+  local dir="$1" rel="$2" force="$3" file="$1/$2"
+  if is_tracked "$dir" "$rel"; then
+    warn "$rel đã được Git theo dõi ở $dir, giữ nguyên"
+    return 1
+  fi
+  if [[ -e "$file" ]] && ! grep -Fq "$MARK" "$file" && [[ "$force" -ne 1 ]]; then
+    warn "$rel đã có và không do bin/agent sinh, giữ nguyên (--force để ghi đè)"
+    return 1
+  fi
+  return 0
+}
+
+# prune_adapters <thư mục> <đuôi> <danh sách tên giữ lại>: xoá adapter do gói sinh
+# mà bộ role hiện tại không còn.
+prune_adapters() {
+  local dir="$1" ext="$2" keep="$3" file base
+  [[ -d "$dir" ]] || return 0
+  for file in "$dir"/*"$ext"; do
+    [[ -f "$file" ]] || continue
+    grep -Fq "$MARK" "$file" || continue
+    base="$(basename "$file" "$ext")"
+    printf '%s' "$keep" | grep -Fqx -- "$base" || {
+      rm -f "$file"
+      info "Đã xoá adapter không còn nguồn: $file"
+    }
+  done
+}
+
+# warn_legacy_adapters <thư mục Claude> <thư mục Codex>: nhắc dọn adapter cũ.
+warn_legacy_adapters() {
+  local claude_dir="$1" codex_dir="$2" name
+  for name in $LEGACY_ROLES; do
+    [[ -f "$claude_dir/$name.md" ]] \
+      && warn "adapter cũ $claude_dir/$name.md không còn trong bộ role, xoá nếu không dùng"
+    [[ -f "$codex_dir/$name.toml" ]] \
+      && warn "adapter cũ $codex_dir/$name.toml không còn trong bộ role, xoá nếu không dùng"
+  done
+  return 0
+}
+
+# install_roles <đích> <force>: sinh adapter Claude Code và Codex từ một nguồn role.
+install_roles() {
+  local dest="$1" force="$2"
+  local claude_dir="$dest/.claude/agents"
+  local codex_dir="${CODEX_HOME:-$HOME/.codex}/agents"
+  local src name rel perm tier desc body spec model effort cname content
+  local claude_keep='' codex_keep=''
+  mkdir -p "$claude_dir"
+  for src in "$PACK_AGENT/roles" "$PROJECT_AGENT/roles"; do
+    [[ -d "$src" ]] || continue
+    while IFS= read -r name; do
+      [[ -n "$name" ]] || continue
+      if [[ "$src" == "$PACK_AGENT/roles" ]]; then
+        rel="agent/roles/$name.md"
+      else
+        rel="project/agent/roles/$name.md"
+      fi
+      perm="$(role_field "$src/$name.md" permission)"
+      tier="$(role_field "$src/$name.md" model)"
+      desc="$(role_field "$src/$name.md" description)"
+      body="$(role_body "$src/$name.md")"
+      if [[ ! "$perm" =~ ^(read-only|write)$ ]]; then
+        warn "role '$name' phải khai permission read-only hoặc write, bỏ qua role này"
+        continue
+      fi
+      if [[ ! "$tier" =~ ^(fast|default|deep)$ ]]; then
+        warn "role '$name' phải khai hạng model fast, default hoặc deep, bỏ qua role này"
+        continue
+      fi
+      if [[ -z "$desc" || -z "$body" ]]; then
+        warn "role '$name' thiếu description hoặc thân role, bỏ qua role này"
+        continue
+      fi
+
+      if adapter_writable "$dest" ".claude/agents/$name.md" "$force"; then
+        model="$(model_for claude "$tier")"
+        content="---
+name: $name
+description: $desc
+tools: $(claude_tools "$perm")"
+        [[ -z "$model" ]] || content+="
+model: $model"
+        content+="
+---
+
+<!-- $MARK bởi bin/agent install, sửa $rel thay vì file này -->
+$body"
+        write_file "$dest" ".claude/agents/$name.md" "$content"
+      fi
+      claude_keep+="$name"$'\n'
+
+      cname="$name"
+      [[ "$cname" == magento-* ]] || cname="magento-$cname"
+      if ! mkdir -p "$codex_dir" 2>/dev/null; then
+        warn "không tạo được thư mục adapter Codex: $codex_dir"
+        continue
+      fi
+      if ! adapter_writable "$codex_dir" "$cname.toml" "$force"; then
+        codex_keep+="$cname"$'\n'
+        continue
+      fi
+      spec="$(model_for codex "$tier")"
+      content="# $MARK bởi bin/agent install, sửa $rel thay vì file này
+name = \"$cname\"
+description = \"$(toml_escape "$desc")\""
+      if [[ -n "$spec" ]]; then
+        model="${spec%%:*}"
+        effort=''
+        [[ "$spec" == *:* ]] && effort="${spec#*:}"
+        content+="
+model = \"$model\""
+        [[ -z "$effort" ]] || content+="
+model_reasoning_effort = \"$effort\""
+      fi
+      content+="
+developer_instructions = \"\"\"
+$(toml_escape "$body")
+\"\"\""
+      write_file "$codex_dir" "$cname.toml" "$content"
+      codex_keep+="$cname"$'\n'
+    done < <(list_names "$src" f)
+  done
+  prune_adapters "$claude_dir" '.md' "$claude_keep"
+  prune_adapters "$codex_dir" '.toml' "$codex_keep"
+  warn_legacy_adapters "$claude_dir" "$codex_dir"
+}
+
+install_cmd() {
+  local dest="$PWD" force=0
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --target)
+        [[ $# -ge 2 ]] || die '--target cần thư mục'
+        dest="$2"
+        shift 2
+        ;;
+      --force) force=1; shift ;;
+      *) die "Tham số không hợp lệ: $1" ;;
+    esac
+  done
+  [[ -d "$dest" ]] || die "Không thấy thư mục đích: $dest"
+  dest="$(cd "$dest" && pwd -P)"
+  [[ -f "$PACK_AGENT/AGENTS.template.md" ]] || die "Thiếu $PACK_AGENT/AGENTS.template.md"
+
+  kit_profile_load "$PROJECT_ROOT" || die 'file profile sai cú pháp, sửa project/profile.env'
+  kit_profile_require KIT_GIT_REMOTE KIT_GIT_BASE_BRANCH KIT_GIT_TARGET_BRANCH \
+    || die 'Điền các khóa Git trong project/profile.env rồi chạy lại'
+
+  check_collisions role "$PACK_AGENT/roles" "$PROJECT_AGENT/roles" f
+  check_collisions skill "$PACK_AGENT/skills" "$PROJECT_AGENT/skills" d
+
+  if writable "$dest" AGENTS.md "$force"; then
+    write_file "$dest" AGENTS.md "$(render_agents)"
+  fi
+  if writable "$dest" CLAUDE.md "$force"; then
+    write_file "$dest" CLAUDE.md "$(render_claude)"
+  fi
+  install_skills "$dest"
+  install_roles "$dest" "$force"
+  info "Đã cài kit agent vào $dest"
+}
+
+main() {
+  local action="${1:-help}"
+  [[ $# -gt 0 ]] && shift
+  case "$action" in
+    install) install_cmd "$@" ;;
+    help | -h | --help) usage ;;
+    *) usage >&2; die "Lệnh không tồn tại: $action" ;;
+  esac
+}
+
+main "$@"

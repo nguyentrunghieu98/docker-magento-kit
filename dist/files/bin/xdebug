@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+# bin/xdebug - bật hoặc tắt Xdebug bằng cách đổi biến thể image phpfpm.
+#
+#   bin/xdebug        in trạng thái hiện tại
+#   bin/xdebug on     ghi KIT_PHP_VARIANT=-xdebug vào .kit/runtime.env, recreate phpfpm
+#   bin/xdebug off    ghi KIT_PHP_VARIANT rỗng vào .kit/runtime.env, recreate phpfpm
+#
+# Không sửa cấu hình PHP trong container và không đụng nginx.
+set -Eeuo pipefail
+
+KIT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+cd "$KIT_ROOT"
+
+# shellcheck source=bin/lib/profile.sh
+source "$KIT_ROOT/bin/lib/profile.sh"
+
+RUNTIME_ENV="$KIT_ROOT/.kit/runtime.env"
+
+current_state() {
+  kit_profile_load "$KIT_ROOT" || exit 1
+  if [[ "$KIT_PHP_VARIANT" == '-xdebug' ]]; then printf 'on'; else printf 'off'; fi
+}
+
+# Ghi KIT_PHP_VARIANT vào runtime.env, giữ nguyên các khóa khác.
+write_variant() {
+  local value="$1" tmp
+  mkdir -p "$KIT_ROOT/.kit"
+  tmp="$(mktemp "$KIT_ROOT/.kit/runtime.env.XXXXXX")"
+  if [[ -f "$RUNTIME_ENV" ]]; then
+    grep -v '^KIT_PHP_VARIANT=' "$RUNTIME_ENV" > "$tmp" || true
+  fi
+  printf 'KIT_PHP_VARIANT=%s\n' "$value" >> "$tmp"
+  mv "$tmp" "$RUNTIME_ENV"
+}
+
+usage() {
+  printf 'Cách dùng: bin/xdebug [on|off]\n' >&2
+}
+
+case "${1:-}" in
+  '')
+    state="$(current_state)"
+    printf 'Xdebug: %s (KIT_PHP_VARIANT=%s)\n' "$state" "$([[ "$state" == on ]] && printf -- '-xdebug')"
+    ;;
+  on | off)
+    mode="$1"
+    kit_profile_load "$KIT_ROOT" || exit 1
+    if [[ "$mode" == on ]]; then variant='-xdebug'; else variant=''; fi
+    write_variant "$variant"
+    bin/docker-compose up -d --no-deps --force-recreate phpfpm
+    printf 'Xdebug: %s\n' "$mode"
+    ;;
+  *)
+    usage
+    exit 1
+    ;;
+esac

@@ -1,0 +1,182 @@
+#!/usr/bin/env bash
+# bin/self-update - cập nhật file của gói trong Docker root này lên một phiên bản khác.
+#
+#   bin/self-update [--version vX.Y.Z] [--dry-run] [--force] [--source <thư mục|tarball>]
+#
+# Cập nhật ba chiều: file của gói chưa sửa được ghi đè lặng lẽ, xung đột cập nhật
+# làm lệnh dừng trước khi ghi bất cứ gì, file của dự án không bao giờ bị ghi đè.
+# Hạ phiên bản dùng cùng thuật toán. Biến môi trường: KIT_REPO=<owner>/<repo>.
+set -Eeuo pipefail
+
+KIT_REPO="${KIT_REPO:-nguyentrunghieu98/magento-docker-kit}"
+SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+ROOT="$(cd "$SELF_DIR/.." && pwd -P)"
+WORK=''
+
+die() {
+  printf 'self-update: %s\n' "$*" >&2
+  exit 1
+}
+
+usage() {
+  cat <<'EOF'
+Cách dùng:
+  bin/self-update [--version vX.Y.Z] [--dry-run] [--force] [--source <thư mục|tarball>]
+
+  --version vX.Y.Z   phiên bản đích (nâng hoặc hạ), mặc định là tag mới nhất
+  --dry-run          chỉ in kế hoạch, không ghi gì
+  --force            sao lưu file xung đột vào .kit/backup/<thời điểm>/ rồi ghi đè
+  --source <nguồn>   dùng thư mục checkout của gói hoặc tarball, không cần mạng
+EOF
+}
+
+cleanup() {
+  if [[ -n "$WORK" && -d "$WORK" ]]; then
+    rm -rf "$WORK"
+  fi
+  return 0
+}
+trap cleanup EXIT
+
+# shellcheck source=dist/files/bin/lib/kit-core.sh
+source "$SELF_DIR/lib/kit-core.sh"
+
+print_plan() {
+  local plan="$1" action mode path n label
+  printf 'Kế hoạch cập nhật %s -> %s\n' "$CURRENT" "$VERSION"
+  while IFS=$'\t' read -r action mode path; do
+    case "$action" in
+      write) label='ghi mới' ;;
+      overwrite) label='ghi đè' ;;
+      conflict) label='XUNG ĐỘT' ;;
+      remove) label='xoá' ;;
+      orphan) label='giữ lại (cảnh báo: bản mới bỏ file này nhưng bạn đã sửa)' ;;
+      template) label='tạo từ template' ;;
+      *) continue ;;
+    esac
+    printf '  %-12s %s\n' "$label" "$path"
+  done < "$plan"
+  n="$(kit_plan_count "$plan" skip)"
+  printf '  (bỏ qua %s file đã trùng bản mới' "$n"
+  n="$(kit_plan_count "$plan" keep)"
+  if [[ "$n" -gt 0 ]]; then printf ', giữ %s file bạn đã sửa mà bản mới không đổi' "$n"; fi
+  printf ')\n'
+}
+
+print_conflict_diffs() {
+  local plan="$1" action mode path
+  while IFS=$'\t' read -r action mode path; do
+    [[ "$action" == conflict ]] || continue
+    printf '\n--- xung đột: %s\n' "$path"
+    if [[ -f "$ROOT/$path" && ! -L "$ROOT/$path" ]]; then
+      diff -u --label "local/$path" --label "$VERSION/$path" "$ROOT/$path" "$KIT_ROOT/dist/files/$path" || true
+    else
+      printf '(local không phải file thường)\n'
+    fi
+  done < "$plan"
+}
+
+compose_changed() {
+  awk -F'\t' '$1 != "skip" && $1 != "keep" && $1 != "orphan" && $3 ~ /^compose(\.[^\/]*)?\.ya?ml$/ { found = 1 } END { exit !found }' "$1"
+}
+
+main() {
+  local version='' source='' dry=0 force=0 plan backup n
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -h | --help)
+        usage
+        exit 0
+        ;;
+      --version)
+        [[ $# -ge 2 ]] || die '--version cần giá trị vX.Y.Z'
+        version="$2"
+        shift 2
+        ;;
+      --version=*)
+        version="${1#*=}"
+        shift
+        ;;
+      --source)
+        [[ $# -ge 2 ]] || die '--source cần một thư mục hoặc tarball'
+        source="$2"
+        shift 2
+        ;;
+      --source=*)
+        source="${1#*=}"
+        shift
+        ;;
+      --dry-run)
+        dry=1
+        shift
+        ;;
+      --force)
+        force=1
+        shift
+        ;;
+      *) die "tùy chọn không hợp lệ: $1" ;;
+    esac
+  done
+  if [[ -n "$version" && ! "$version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    die "--version phải có dạng vX.Y.Z, nhận được: $version"
+  fi
+
+  [[ -f "$ROOT/.kit/manifest" && -f "$ROOT/.kit/version" ]] \
+    || die "$ROOT chưa do gói quản lý (thiếu .kit/manifest). Dùng: install.sh adopt $ROOT"
+  CURRENT="$(tr -d '[:space:]' < "$ROOT/.kit/version")"
+
+  WORK="$(mktemp -d "${TMPDIR:-/tmp}/kit-update.XXXXXX")"
+  kit_fetch_source "$WORK" "$source" "$version" "$KIT_REPO"
+  verify_source "$KIT_ROOT"
+
+  plan="$WORK/plan"
+  kit_plan "$ROOT" "$ROOT/.kit/manifest" "$KIT_ROOT/dist/manifest" "$KIT_ROOT/dist/templates" > "$plan"
+  print_plan "$plan"
+
+  local conflicts
+  conflicts="$(kit_plan_count "$plan" conflict)"
+  if [[ "$conflicts" -gt 0 ]]; then
+    print_conflict_diffs "$plan"
+  fi
+
+  print_extras
+
+  if [[ "$conflicts" -gt 0 && "$force" -eq 0 ]]; then
+    printf '\nself-update: %s xung đột cập nhật, chưa ghi gì. Chuyển phần tùy biến sang chỗ mở rộng, hoặc chạy lại với --force để sao lưu rồi ghi đè.\n' "$conflicts" >&2
+    exit 1
+  fi
+  if [[ "$dry" -eq 1 ]]; then
+    printf '\nChạy thử (--dry-run), không ghi gì.\n'
+    if compose_changed "$plan"; then printf 'Sau khi cập nhật thật, chạy: bin/restart\n'; fi
+    exit 0
+  fi
+
+  backup="$ROOT/.kit/backup/$(date +%Y%m%d-%H%M%S)"
+  kit_apply "$ROOT" "$plan" "$KIT_ROOT/dist/files" "$KIT_ROOT/dist/templates" "$force" "$backup"
+  kit_write_state "$ROOT" "$KIT_ROOT/dist/manifest" "$VERSION"
+
+  n="$(kit_plan_count "$plan" conflict)"
+  printf '\nĐã cập nhật lên %s.\n' "$VERSION"
+  if [[ "$n" -gt 0 ]]; then
+    printf 'Đã sao lưu %s file xung đột vào %s\n' "$n" "${backup#"$ROOT"/}"
+  fi
+  if compose_changed "$plan"; then
+    printf 'File Compose đã đổi. Chạy bin/restart để áp dụng.\n'
+  fi
+}
+
+# Changelog giữa hai phiên bản và khóa profile còn thiếu. Chỉ in, không ghi.
+print_extras() {
+  local text missing
+  text="$(kit_changelog "$KIT_ROOT/CHANGELOG.md" "$CURRENT" "$VERSION")"
+  if [[ -n "$text" ]]; then
+    printf '\nChangelog %s -> %s:\n%s\n' "$CURRENT" "$VERSION" "$text"
+  fi
+  missing="$(kit_profile_missing "$ROOT/project/profile.env" "$KIT_ROOT/dist/templates/project/profile.env")"
+  if [[ -n "$missing" ]]; then
+    printf '\nproject/profile.env còn thiếu khóa so với template mới (chưa ghi gì, hãy tự thêm nếu cần):\n'
+    printf '%s\n' "$missing" | sed 's/^/  /'
+  fi
+}
+
+main "$@"

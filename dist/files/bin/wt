@@ -1,0 +1,762 @@
+#!/usr/bin/env bash
+# bin/wt - chạy một stack Docker duy nhất trên nhiều worktree của repo Magento.
+#
+# Bố cục (đường dẫn tính từ Docker root):
+#   src/                       checkout chính của repo Magento, không bao giờ bị di chuyển
+#   .worktrees/<dir>           worktree, <dir> là tên branch đổi "/" thành "-"
+#   .active-src -> <checkout>  thứ mà Docker mount vào /var/www/html
+#   compose.worktree.yaml      overlay mount .active-src, bin/docker-compose tự nạp
+#
+# Cách tạo worktree hợp lệ duy nhất là `bin/wt create`. Mọi worktree dùng chung một
+# DB, vendor/, node_modules/ và pub/media. Khóa Git (remote, nhánh gốc) lấy từ
+# project/profile.env, không dò tìm.
+set -Eeuo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+MAIN_DIR="$PROJECT_ROOT/src"
+WORKTREES_DIR="$PROJECT_ROOT/.worktrees"
+ACTIVE_LINK="$PROJECT_ROOT/.active-src"
+COMPOSE_WRAPPER="$PROJECT_ROOT/bin/docker-compose"
+MAGENTO_CLI="$PROJECT_ROOT/bin/magento"
+AGENT_CLI="$PROJECT_ROOT/bin/agent"
+PHP_SERVICES=(app phpfpm)
+
+# Thư mục runtime mà Magento cần trong checkout mới (đều bị Git bỏ qua). Tạo ở đây để
+# chủ sở hữu là người dùng host chứ không phải daemon Docker (root).
+RUNTIME_DIRS=(app/code app/design app/etc generated var/log var/report pub/static pub/media)
+SHARED_DIRS=(bin dev lib phpserver setup vendor node_modules)
+
+# File lõi Magento mà whitelist .gitignore của repo bỏ sót, chép từ src/ vào worktree
+# khi còn thiếu. Đường dẫn tính từ gốc Magento.
+CORE_FILES=(
+  app/bootstrap.php
+  app/autoload.php
+  app/.htaccess
+  app/etc/NonComposerComponentRegistration.php
+  app/etc/registration_globlist.php
+  app/etc/vendor_path.php
+  app/etc/env.php
+  pub/index.php
+  pub/cron.php
+  pub/get.php
+  pub/health_check.php
+  pub/static.php
+  pub/.htaccess
+  pub/.user.ini
+  .user.ini
+  php.ini
+  nginx.conf.sample
+  package.json
+  Gruntfile.js
+  grunt-config.json
+)
+
+# Mẫu tên branch: <type>/<slug>.
+BRANCH_PATTERN='^[a-z][a-z0-9]*/[A-Za-z0-9][A-Za-z0-9._-]*$'
+
+# shellcheck source=bin/lib/profile.sh
+source "$SCRIPT_DIR/lib/profile.sh"
+
+info() { printf '%s\n' "$*"; }
+ok() { printf 'OK: %s\n' "$*"; }
+warn() { printf 'CẢNH BÁO: %s\n' "$*" >&2; }
+die() { printf 'LỖI: %s\n' "$*" >&2; exit 1; }
+
+usage() {
+  cat <<'USAGE'
+Cách dùng: bin/wt <lệnh> [tham số]
+
+  create <type>/<slug>          Tạo worktree trong .worktrees/ từ <remote>/<nhánh gốc>
+  create --review-mr <id>       Tạo worktree detached review-mr<id> từ MR của remote
+         [--ref <branch>]       (hoặc từ <remote>/<branch> khi truyền --ref)
+  list                          Liệt kê worktree, branch và worktree đang phục vụ
+  use <tên|đường dẫn|branch>    Cho stack duy nhất phục vụ worktree đó
+  status                        Cho biết worktree đang phục vụ và trạng thái container
+  path <tên|đường dẫn|branch>   In đường dẫn tuyệt đối của worktree
+  prepare <tên|đường dẫn|branch> Chép các file lõi bị .gitignore bỏ sót vào worktree
+  shell <tên|đường dẫn|branch>  Mở shell trong worktree
+  remove <tên>                  Xoá worktree sạch trong .worktrees/ không đang phục vụ
+  adopt <đường dẫn>             Đưa worktree tạo sai chỗ về .worktrees/<dir> rồi prepare
+  prune [--dry-run]             Xoá worktree sạch đã merge vào <remote>/<nhánh đích> và
+                                worktree review, giữ branch. --dry-run chỉ liệt kê
+  doctor                        So mount phpfpm với .active-src, kiểm base_url và khóa KIT_*
+  mounts                        Cho biết các mount Docker mà stack sẽ dùng
+
+  <tên> là 'main', thư mục trong .worktrees/, tên branch hoặc đường dẫn tuyệt đối.
+  Khi đổi worktree chỉ app và phpfpm được tạo lại, DB không bị đụng tới.
+USAGE
+}
+
+need_command() {
+  command -v "$1" >/dev/null 2>&1 || die "Thiếu lệnh: $1"
+}
+
+compose() {
+  ( cd "$PROJECT_ROOT" && "$COMPOSE_WRAPPER" "$@" )
+}
+
+docker_online() {
+  command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1
+}
+
+# Nạp file profile và kiểm các khóa Git bắt buộc. Gọi trước mọi việc cần remote.
+load_git_keys() {
+  kit_profile_load "$PROJECT_ROOT" || die 'file profile sai cú pháp, sửa project/profile.env'
+  kit_profile_require KIT_GIT_REMOTE KIT_GIT_BASE_BRANCH || die 'Điền các khóa Git trong project/profile.env rồi chạy lại'
+}
+
+require_main() {
+  [[ -d "$MAIN_DIR/.git" ]] || die "Không thấy $MAIN_DIR/.git, src/ phải là checkout chính của repo Magento"
+  git -C "$MAIN_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
+    || die 'src/ không phải work tree Git của repo Magento'
+}
+
+# Các lệnh đọc dùng bản này: nếu chưa có .active-src thì coi như đang phục vụ src/.
+require_main_for_read() {
+  require_main
+  if [[ -e "$ACTIVE_LINK" && ! -L "$ACTIVE_LINK" ]]; then
+    die "$ACTIVE_LINK tồn tại nhưng không phải symlink, hãy dời nó đi"
+  fi
+  if [[ -L "$ACTIVE_LINK" && ! -d "$ACTIVE_LINK" ]]; then
+    die ".active-src bị hỏng -> '$(readlink "$ACTIVE_LINK")', chạy bin/wt use main để sửa"
+  fi
+  return 0
+}
+
+# Lệnh ghi: tạo .active-src -> src và .worktrees/ khi chưa có (src/ không bị đụng tới).
+ensure_active() {
+  require_main_for_read
+  mkdir -p "$WORKTREES_DIR"
+  if [[ ! -L "$ACTIVE_LINK" ]]; then
+    ln -s "$MAIN_DIR" "$ACTIVE_LINK" || die 'Không tạo được symlink .active-src'
+    info 'Đã tạo .active-src -> src (src/ không bị đụng tới)'
+  fi
+}
+
+worktree_paths() {
+  git -C "$MAIN_DIR" worktree list --porcelain | sed -n 's/^worktree //p'
+}
+
+branch_of() {
+  local name
+  name="$(git -C "$1" rev-parse --abbrev-ref HEAD 2>/dev/null)" || { printf '(không rõ)\n'; return 0; }
+  if [[ "$name" == 'HEAD' ]]; then printf '(detached)\n'; else printf '%s\n' "$name"; fi
+}
+
+alias_for() {
+  local path="$1"
+  if [[ "$path" == "$MAIN_DIR" ]]; then printf 'main\n'; return 0; fi
+  if [[ "$path" == "$WORKTREES_DIR/"* ]]; then printf '%s\n' "${path#"$WORKTREES_DIR/"}"; return 0; fi
+  printf 'wt/%s\n' "$(basename "$path")"
+}
+
+is_owned_worktree() {
+  local path="$1"
+  [[ "$path" == "$MAIN_DIR" ]] && return 0
+  worktree_paths | grep -Fqx "$path"
+}
+
+verify_checkout() {
+  local path="$1"
+  [[ -d "$path" ]] || die "Không phải thư mục: $path"
+  is_owned_worktree "$path" || die "Không phải worktree của repo Magento trong src/: $path"
+  [[ -f "$path/composer.json" ]] || die "Thiếu composer.json, không phải gốc Magento: $path"
+}
+
+# Chỉ checkout chính và đường dẫn trong .worktrees/ được phép phục vụ.
+require_standard_location() {
+  local path="$1"
+  case "$path" in
+    "$MAIN_DIR" | "$WORKTREES_DIR"/*) return 0 ;;
+  esac
+  die "Từ chối $path vì nằm ngoài .worktrees/. Nếu đây là worktree của src/, đưa nó về vị trí chuẩn bằng: bin/wt adopt $path"
+}
+
+resolve_target() {
+  local arg="${1:-}" path real
+  local -a matches=()
+  [[ -n "$arg" ]] || die 'Thiếu tên worktree, đường dẫn hoặc branch'
+
+  if [[ "$arg" == 'main' ]]; then realpath "$MAIN_DIR"; return 0; fi
+  if [[ -d "$arg" ]]; then realpath "$arg"; return 0; fi
+  if [[ -d "$WORKTREES_DIR/$arg" ]]; then realpath "$WORKTREES_DIR/$arg"; return 0; fi
+
+  while IFS= read -r path; do
+    [[ -n "$path" ]] || continue
+    [[ "$path" == "$MAIN_DIR" ]] && continue
+    if [[ "$path" == "$arg" \
+       || "$(alias_for "$path")" == "$arg" \
+       || "$(branch_of "$path")" == "$arg" \
+       || "$(basename "$path")" == "${arg#wt/}" ]]; then
+      matches+=("$path")
+    fi
+  done < <(worktree_paths)
+
+  if [[ "${#matches[@]}" -eq 0 ]]; then
+    {
+      printf 'LỖI: Không có worktree nào tên: %s\n' "$arg"
+      printf 'Các worktree hiện có:\n'
+      worktree_paths | while IFS= read -r path; do
+        printf '  %-26s %s\n' "$(alias_for "$path")" "$path"
+      done
+    } >&2
+    exit 1
+  fi
+  if [[ "${#matches[@]}" -gt 1 ]]; then
+    {
+      printf "LỖI: '%s' khớp nhiều worktree, hãy dùng một trong:\n" "$arg"
+      printf '%s\n' "${matches[@]}" | while IFS= read -r path; do
+        printf '  %s\n' "$path"
+      done
+    } >&2
+    exit 1
+  fi
+  real="$(realpath "${matches[0]}")"
+  printf '%s\n' "$real"
+}
+
+active_path() {
+  if [[ -L "$ACTIVE_LINK" ]]; then
+    ( cd -P "$ACTIVE_LINK" && pwd -P )
+  else
+    printf '%s\n' "$MAIN_DIR"
+  fi
+}
+
+active_name() {
+  alias_for "$(active_path)"
+}
+
+detect_running_php() {
+  RUNNING_PHP_SERVICES=()
+  docker_online || return 0
+  local running service
+  running="$(compose ps --services --status running)" \
+    || die 'Không hỏi được Docker Compose, chưa thay đổi gì'
+  for service in "${PHP_SERVICES[@]}"; do
+    if printf '%s\n' "$running" | grep -Fqx "$service"; then
+      RUNNING_PHP_SERVICES+=("$service")
+    fi
+  done
+}
+
+repoint_active() {
+  local target="$1" tmp="$ACTIVE_LINK.tmp.$$"
+  rm -f "$tmp"
+  ln -s "$target" "$tmp" || die "Không tạo được symlink: $tmp"
+  if ! mv -Tf "$tmp" "$ACTIVE_LINK" 2>/dev/null; then
+    rm -f "$tmp"
+    die "$ACTIVE_LINK không phải symlink, hãy dời nó đi"
+  fi
+}
+
+prepare_local_files() {
+  local dest="$1" dir file copied=0
+  for dir in "${RUNTIME_DIRS[@]}" "${SHARED_DIRS[@]}"; do
+    mkdir -p "$dest/$dir"
+  done
+
+  # File lõi không nằm trong Git: chỉ chép khi checkout bỏ qua chúng, để bản chép
+  # không bao giờ bị stage nhầm. app/etc/env.php mang thông tin DB và Redis dùng chung.
+  for file in "${CORE_FILES[@]}"; do
+    [[ -f "$MAIN_DIR/$file" ]] || continue
+    [[ -e "$dest/$file" ]] && continue
+    if git -C "$dest" check-ignore -q -- "$file"; then
+      mkdir -p "$dest/$(dirname "$file")"
+      cp -p "$MAIN_DIR/$file" "$dest/$file"
+      copied=$((copied + 1))
+    else
+      warn "$file chưa được chép vì $dest không bỏ qua file này"
+    fi
+  done
+
+  # nginx.conf sinh từ nginx.conf.sample và bị Git bỏ qua, nhưng nginx không khởi động
+  # được nếu thiếu nó.
+  if [[ ! -e "$dest/nginx.conf" ]]; then
+    if [[ -f "$MAIN_DIR/nginx.conf" ]]; then
+      cp -p "$MAIN_DIR/nginx.conf" "$dest/nginx.conf"
+      copied=$((copied + 1))
+    elif [[ -f "$MAIN_DIR/nginx.conf.sample" ]]; then
+      cp -p "$MAIN_DIR/nginx.conf.sample" "$dest/nginx.conf"
+      copied=$((copied + 1))
+    fi
+  fi
+
+  [[ "$copied" -gt 0 ]] && info "Đã chép $copied file lõi chưa có trong Git vào $dest"
+
+  # Kit agent: chỉ cài khi lệnh đã tồn tại, chưa có thì bỏ qua.
+  if [[ "$dest" != "$MAIN_DIR" && -x "$AGENT_CLI" ]]; then
+    ( cd "$dest" && "$AGENT_CLI" install ) || warn 'bin/agent install lỗi, worktree vẫn dùng được, chạy lại sau'
+  fi
+  return 0
+}
+
+warn_lock_mismatch() {
+  local dest="$1"
+  [[ "$dest" != "$MAIN_DIR" ]] || return 0
+  if [[ -f "$MAIN_DIR/composer.lock" && -f "$dest/composer.lock" ]] \
+     && ! cmp -s "$MAIN_DIR/composer.lock" "$dest/composer.lock"; then
+    warn 'composer.lock khác với src/, vendor/ dùng chung có thể không khớp branch này.'
+    warn 'Nếu hỏng, chạy: bin/cli composer install (lệnh này cập nhật vendor/ dùng chung)'
+  fi
+}
+
+# --------------------------------------------------------------------------
+# Git theo khóa của profile
+# --------------------------------------------------------------------------
+
+# Kiểm remote có trong src/ rồi fetch. Dừng và chỉ rõ khóa cần sửa khi lỗi.
+fetch_remote() {
+  git -C "$MAIN_DIR" remote get-url "$KIT_GIT_REMOTE" >/dev/null 2>&1 \
+    || die "KIT_GIT_REMOTE=$KIT_GIT_REMOTE: src/ không có remote này. Sửa KIT_GIT_REMOTE trong project/profile.env"
+  info "Fetch $KIT_GIT_REMOTE..."
+  git -C "$MAIN_DIR" fetch --quiet "$KIT_GIT_REMOTE" \
+    || die "Fetch $KIT_GIT_REMOTE lỗi. Kiểm KIT_GIT_REMOTE trong project/profile.env và kết nối mạng"
+}
+
+# In ref <remote>/<base> sau khi fetch, dừng nếu không tồn tại.
+base_ref() {
+  local ref="refs/remotes/$KIT_GIT_REMOTE/$KIT_GIT_BASE_BRANCH"
+  git -C "$MAIN_DIR" rev-parse -q --verify "${ref}^{commit}" >/dev/null 2>&1 \
+    || die "Ref $KIT_GIT_REMOTE/$KIT_GIT_BASE_BRANCH không tồn tại sau khi fetch. Sửa KIT_GIT_BASE_BRANCH (hoặc KIT_GIT_REMOTE) trong project/profile.env"
+  printf '%s\n' "$ref"
+}
+
+# --------------------------------------------------------------------------
+# Lệnh
+# --------------------------------------------------------------------------
+
+create_cmd() {
+  need_command git
+  require_main
+  local branch='' review_id='' ref_branch=''
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --review-mr)
+        [[ $# -ge 2 ]] || die '--review-mr cần số MR'
+        review_id="$2"; shift 2 ;;
+      --ref)
+        [[ $# -ge 2 ]] || die '--ref cần tên branch trên remote'
+        ref_branch="$2"; shift 2 ;;
+      -*) die "Tham số không hợp lệ: $1" ;;
+      *)
+        [[ -z "$branch" ]] || die "Thừa tham số: $1"
+        branch="$1"; shift ;;
+    esac
+  done
+
+  if [[ -n "$review_id" ]]; then
+    [[ -z "$branch" ]] || die 'create --review-mr không nhận tên branch'
+    create_review "$review_id" "$ref_branch"
+    return 0
+  fi
+  [[ -z "$ref_branch" ]] || die '--ref chỉ dùng cùng --review-mr'
+  [[ -n "$branch" ]] || die 'Cách dùng: bin/wt create <type>/<slug>'
+  [[ "$branch" =~ $BRANCH_PATTERN ]] && git check-ref-format --branch "$branch" >/dev/null 2>&1 \
+    || die "Tên branch '$branch' sai mẫu <type>/<slug>, ví dụ feature/gio-hang. <type> là chữ thường, <slug> gồm chữ, số, '.', '_' hoặc '-'"
+
+  load_git_keys
+  local dir dest base
+  dir="${branch//\//-}"
+  dest="$WORKTREES_DIR/$dir"
+  [[ ! -e "$dest" ]] || die "Đường dẫn đã tồn tại: $dest"
+  git -C "$MAIN_DIR" show-ref --verify --quiet "refs/heads/$branch" \
+    && die "Branch $branch đã tồn tại trong src/. bin/wt create luôn tạo branch mới từ $KIT_GIT_REMOTE/$KIT_GIT_BASE_BRANCH, hãy chọn tên khác"
+
+  fetch_remote
+  base="$(base_ref)"
+  ensure_active
+  git -C "$MAIN_DIR" worktree add --no-track -b "$branch" "$dest" "$base" >/dev/null
+  dest="$(realpath "$dest")"
+  prepare_local_files "$dest"
+  info "Worktree đã sẵn sàng: $dest"
+  info "Branch $branch tạo từ $KIT_GIT_REMOTE/$KIT_GIT_BASE_BRANCH"
+  info "Cho stack phục vụ nó: bin/wt use '$dir'"
+}
+
+create_review() {
+  local id="$1" ref_branch="$2" dir dest target
+  [[ "$id" =~ ^[0-9]+$ ]] || die "Số MR phải là số nguyên, nhận được: $id"
+  load_git_keys
+  dir="review-mr$id"
+  dest="$WORKTREES_DIR/$dir"
+  [[ ! -e "$dest" ]] || die "Đường dẫn đã tồn tại: $dest"
+
+  fetch_remote
+  if [[ -n "$ref_branch" ]]; then
+    target="refs/remotes/$KIT_GIT_REMOTE/$ref_branch"
+    git -C "$MAIN_DIR" rev-parse -q --verify "${target}^{commit}" >/dev/null 2>&1 \
+      || die "Ref $KIT_GIT_REMOTE/$ref_branch không tồn tại sau khi fetch"
+  else
+    git -C "$MAIN_DIR" fetch --quiet "$KIT_GIT_REMOTE" "refs/merge-requests/$id/head" 2>/dev/null \
+      || die "Không lấy được refs/merge-requests/$id/head từ $KIT_GIT_REMOTE. Nếu MR dùng ref khác, truyền --ref <branch>"
+    target='FETCH_HEAD'
+  fi
+  ensure_active
+  git -C "$MAIN_DIR" worktree add --detach "$dest" "$target" >/dev/null
+  dest="$(realpath "$dest")"
+  prepare_local_files "$dest"
+  info "Worktree review đã sẵn sàng (detached): $dest"
+  info "Cho stack phục vụ nó: bin/wt use '$dir'"
+}
+
+prepare_cmd() {
+  require_main_for_read
+  local target
+  target="$(resolve_target "${1:-}")"
+  verify_checkout "$target"
+  prepare_local_files "$target"
+  warn_lock_mismatch "$target"
+  info "Đã chuẩn bị: $target"
+}
+
+use_cmd() {
+  [[ $# -eq 1 ]] || die 'Cách dùng: bin/wt use <tên|đường dẫn|branch>'
+  require_main_for_read
+  local target old_target
+  target="$(resolve_target "$1")"
+  require_standard_location "$target"
+  verify_checkout "$target"
+  ensure_active
+  prepare_local_files "$target"
+  warn_lock_mismatch "$target"
+
+  old_target="$(active_path)"
+  if [[ "$target" == "$old_target" ]]; then
+    info "Đang phục vụ sẵn: $(active_name)"
+    return 0
+  fi
+
+  detect_running_php
+
+  if [[ "${#RUNNING_PHP_SERVICES[@]}" -gt 0 ]]; then
+    info "Chỉ dừng PHP và Nginx: ${RUNNING_PHP_SERVICES[*]}"
+    compose stop "${RUNNING_PHP_SERVICES[@]}" || die 'Không dừng được service, chưa đổi worktree'
+  fi
+
+  repoint_active "$target"
+
+  if [[ "${#RUNNING_PHP_SERVICES[@]}" -gt 0 ]]; then
+    info 'Tạo lại mount của app và phpfpm, DB, Redis, OpenSearch, RabbitMQ vẫn chạy...'
+    if ! compose up -d --no-deps --force-recreate "${RUNNING_PHP_SERVICES[@]}"; then
+      warn 'Tạo lại container lỗi, đang trả symlink về như cũ.'
+      repoint_active "$old_target"
+      compose up -d --no-deps --force-recreate "${RUNNING_PHP_SERVICES[@]}" \
+        || warn 'Khôi phục service lỗi, kiểm bin/status và log Docker.'
+      die 'Đã huỷ việc đổi worktree, worktree cũ được giữ nguyên'
+    fi
+    if printf '%s\n' "${RUNNING_PHP_SERVICES[@]}" | grep -Fqx 'phpfpm' && [[ -x "$MAGENTO_CLI" ]]; then
+      info 'Xoá cache Magento (cố gắng hết sức)...'
+      ( cd "$PROJECT_ROOT" && "$MAGENTO_CLI" cache:clean ) \
+        || warn 'Xoá cache lỗi, chạy bin/magento cache:clean khi Magento sẵn sàng.'
+    fi
+    info 'Cron và watcher chạy trong phpfpm, hãy khởi động lại nếu bạn dùng (bin/cron start, bin/watch).'
+  else
+    info 'PHP và Nginx chưa chạy. Khởi động stack bằng: bin/start'
+  fi
+
+  info "Đang phục vụ: $(active_name) ($target)"
+  info 'Kiểm: bin/magento --version rồi mở storefront trên trình duyệt'
+}
+
+list_cmd() {
+  require_main_for_read
+  local path mark active
+  active="$(active_path)"
+  info "Đang phục vụ: $(active_name)"
+  info "Đường dẫn: $active"
+  printf '\n%-3s %-28s %-30s %s\n' '' 'TÊN' 'BRANCH' 'ĐƯỜNG DẪN'
+  while IFS= read -r path; do
+    [[ -n "$path" ]] || continue
+    mark=' '
+    [[ "$path" == "$active" ]] && mark='*'
+    printf '%-3s %-28s %-30s %s\n' "$mark" "$(alias_for "$path")" "$(branch_of "$path")" "$path"
+  done < <(worktree_paths)
+}
+
+path_cmd() {
+  [[ $# -eq 1 ]] || die 'Cách dùng: bin/wt path <tên|đường dẫn|branch>'
+  require_main_for_read
+  local target
+  target="$(resolve_target "$1")"
+  verify_checkout "$target"
+  printf '%s\n' "$target"
+}
+
+status_cmd() {
+  require_main_for_read
+  info "Đang phục vụ: $(active_name)"
+  info "Đường dẫn: $(active_path)"
+  info "Branch: $(branch_of "$(active_path)")"
+  info 'File thay đổi trong checkout đang phục vụ:'
+  git -C "$(active_path)" status --short
+  if docker_online; then
+    info 'Service Docker:'
+    compose ps
+  else
+    info 'Docker daemon đang tắt hoặc không truy cập được.'
+  fi
+}
+
+mounts_cmd() {
+  require_main_for_read
+  docker_online || die 'Docker daemon đang tắt'
+  compose config | sed -n '/^  app:/,/^  [a-z]/p;/^  phpfpm:/,/^  [a-z]/p' | sed -n '1,120p'
+}
+
+shell_cmd() {
+  require_main_for_read
+  local name="${1:-}" target
+  [[ -n "$name" ]] || die 'Cách dùng: bin/wt shell <tên|đường dẫn|branch>'
+  target="$(resolve_target "$name")"
+  verify_checkout "$target"
+  cd "$target"
+  exec "${SHELL:-/bin/bash}"
+}
+
+remove_cmd() {
+  require_main_for_read
+  local name="${1:-}" target
+  [[ $# -eq 1 && -n "$name" ]] || die 'Cách dùng: bin/wt remove <tên>'
+  [[ "$name" != 'main' ]] || die 'Không xoá được checkout chính trong src/'
+  target="$(resolve_target "$name")"
+  [[ "$target" != "$MAIN_DIR" ]] || die 'Không xoá được checkout chính trong src/'
+  case "$target" in
+    "$WORKTREES_DIR"/*) ;;
+    *) die "Từ chối xoá đường dẫn ngoài .worktrees/: $target" ;;
+  esac
+  is_owned_worktree "$target" || die "Không phải worktree liên kết của src/: $target"
+  [[ "$(active_path)" != "$target" ]] || die 'Không xoá được worktree đang phục vụ, chạy bin/wt use main trước'
+
+  if ! git -C "$MAIN_DIR" worktree remove "$target"; then
+    die "Không xoá được $target (còn file đã sửa hoặc chưa theo dõi?), branch được giữ nguyên"
+  fi
+  info "Đã xoá worktree: $name (branch local được giữ)"
+}
+
+# --------------------------------------------------------------------------
+# adopt, prune, doctor
+# --------------------------------------------------------------------------
+
+adopt_cmd() {
+  [[ $# -eq 1 ]] || die 'Cách dùng: bin/wt adopt <đường dẫn>'
+  need_command git
+  require_main_for_read
+  [[ -d "$1" ]] || die "Không phải thư mục: $1"
+  local target branch dir dest
+  target="$(realpath "$1")"
+  [[ "$target" != "$MAIN_DIR" ]] || die 'Không nhận được checkout chính trong src/'
+  worktree_paths | grep -Fqx "$target" \
+    || die "Không phải worktree của repo Magento trong src/: $target. Chỉ nhận được worktree đã tạo bằng git worktree từ src/"
+  [[ "$(active_path)" != "$target" ]] \
+    || die 'Worktree này đang được phục vụ, chạy bin/wt use main trước rồi nhận lại'
+
+  if [[ "$target" == "$WORKTREES_DIR"/* ]]; then
+    info "Đã ở vị trí chuẩn: $target"
+    prepare_local_files "$target"
+    warn_lock_mismatch "$target"
+    return 0
+  fi
+
+  branch="$(branch_of "$target")"
+  case "$branch" in
+    '(detached)' | '(không rõ)') dir="$(basename "$target")" ;;
+    *) dir="${branch//\//-}" ;;
+  esac
+  dest="$WORKTREES_DIR/$dir"
+  [[ ! -e "$dest" ]] || die "Đường dẫn đã tồn tại: $dest, không ghi đè. Đổi tên hoặc xoá nó trước"
+
+  ensure_active
+  git -C "$MAIN_DIR" worktree move "$target" "$dest" \
+    || die "git worktree move lỗi, worktree vẫn ở $target (đang bị khoá? chạy git worktree unlock)"
+  dest="$(realpath "$dest")"
+  prepare_local_files "$dest"
+  warn_lock_mismatch "$dest"
+  info "Đã nhận worktree: $target -> $dest"
+  info "Cho stack phục vụ nó: bin/wt use '$dir'"
+}
+
+# Phân loại mọi worktree liên kết cho prune. Điền các mảng PRUNE_*, mỗi phần tử là một
+# đường dẫn, theo thứ tự ưu tiên: đang phục vụ, còn thay đổi, ngoài vị trí chuẩn,
+# review, đã merge, chưa merge.
+classify_for_prune() {
+  local target_ref="$1" path active
+  PRUNE_REMOVE=() PRUNE_REVIEW=() PRUNE_MERGED=() PRUNE_DIRTY=() PRUNE_OUTSIDE=() PRUNE_UNMERGED=() PRUNE_ACTIVE=()
+  active="$(active_path)"
+  while IFS= read -r path; do
+    [[ -n "$path" && "$path" != "$MAIN_DIR" ]] || continue
+    if [[ "$path" == "$active" ]]; then
+      PRUNE_ACTIVE+=("$path"); continue
+    fi
+    if [[ -n "$(git -C "$path" status --porcelain 2>/dev/null)" ]]; then
+      PRUNE_DIRTY+=("$path"); continue
+    fi
+    if [[ "$path" != "$WORKTREES_DIR"/* ]]; then
+      PRUNE_OUTSIDE+=("$path"); continue
+    fi
+    if [[ "$(branch_of "$path")" == '(detached)' && "$(basename "$path")" == review-mr* ]]; then
+      PRUNE_REVIEW+=("$path"); PRUNE_REMOVE+=("$path"); continue
+    fi
+    if git -C "$path" merge-base --is-ancestor HEAD "$target_ref" 2>/dev/null; then
+      PRUNE_MERGED+=("$path"); PRUNE_REMOVE+=("$path")
+    else
+      PRUNE_UNMERGED+=("$path")
+    fi
+  done < <(worktree_paths)
+}
+
+print_prune_group() {
+  local title="$1" note="$2" path
+  shift 2
+  [[ $# -gt 0 ]] || return 0
+  info "$title"
+  for path in "$@"; do
+    printf '  %-26s %-30s %s\n' "$(alias_for "$path")" "$(branch_of "$path")" "$path"
+  done
+  [[ -z "$note" ]] || info "  -> $note"
+}
+
+prune_cmd() {
+  local dry=0 arg
+  for arg in "$@"; do
+    case "$arg" in
+      --dry-run) dry=1 ;;
+      *) die 'Cách dùng: bin/wt prune [--dry-run]' ;;
+    esac
+  done
+  need_command git
+  require_main_for_read
+  kit_profile_load "$PROJECT_ROOT" || die 'file profile sai cú pháp, sửa project/profile.env'
+  kit_profile_require KIT_GIT_REMOTE KIT_GIT_TARGET_BRANCH || die 'Điền các khóa Git trong project/profile.env rồi chạy lại'
+  fetch_remote
+  local target_ref="refs/remotes/$KIT_GIT_REMOTE/$KIT_GIT_TARGET_BRANCH"
+  git -C "$MAIN_DIR" rev-parse -q --verify "${target_ref}^{commit}" >/dev/null 2>&1 \
+    || die "Ref $KIT_GIT_REMOTE/$KIT_GIT_TARGET_BRANCH không tồn tại sau khi fetch. Sửa KIT_GIT_TARGET_BRANCH (hoặc KIT_GIT_REMOTE) trong project/profile.env"
+
+  classify_for_prune "$target_ref"
+
+  info "Xét theo $KIT_GIT_REMOTE/$KIT_GIT_TARGET_BRANCH"
+  print_prune_group 'Sẽ xoá, sạch và đã merge:' '' ${PRUNE_MERGED[@]+"${PRUNE_MERGED[@]}"}
+  print_prune_group 'Sẽ xoá, worktree review:' '' ${PRUNE_REVIEW[@]+"${PRUNE_REVIEW[@]}"}
+  [[ "${#PRUNE_REMOVE[@]}" -gt 0 ]] || info 'Không có worktree nào để xoá.'
+  print_prune_group 'Còn thay đổi, chỉ báo, không đụng tới:' 'commit hoặc bỏ thay đổi rồi chạy lại' ${PRUNE_DIRTY[@]+"${PRUNE_DIRTY[@]}"}
+  print_prune_group 'Ngoài .worktrees/, prune không xoá:' 'đưa về vị trí chuẩn bằng bin/wt adopt <đường dẫn>' ${PRUNE_OUTSIDE[@]+"${PRUNE_OUTSIDE[@]}"}
+  print_prune_group 'Chưa merge, giữ lại:' '' ${PRUNE_UNMERGED[@]+"${PRUNE_UNMERGED[@]}"}
+  print_prune_group 'Đang phục vụ, giữ lại:' '' ${PRUNE_ACTIVE[@]+"${PRUNE_ACTIVE[@]}"}
+
+  if [[ "$dry" -eq 1 ]]; then
+    info 'Chạy thử (--dry-run), chưa xoá gì.'
+    return 0
+  fi
+
+  local failed=0 p
+  for p in ${PRUNE_REMOVE[@]+"${PRUNE_REMOVE[@]}"}; do
+    if git -C "$MAIN_DIR" worktree remove "$p"; then
+      info "Đã xoá: $(alias_for "$p") (branch local được giữ)"
+    else
+      warn "Không xoá được $p"
+      failed=1
+    fi
+  done
+  return "$failed"
+}
+
+# Lấy host từ một URL (bỏ scheme, đường dẫn, cổng).
+url_host() {
+  local h="${1#*://}"
+  h="${h%%/*}"
+  printf '%s\n' "${h%%:*}"
+}
+
+doctor_cmd() {
+  require_main_for_read
+  local issues=0 key active cid mount base host
+  info '--- Profile ---'
+  if ! kit_profile_load "$PROJECT_ROOT"; then
+    warn 'file profile sai cú pháp, sửa project/profile.env'
+    return 1
+  fi
+  for key in $(kit_profile_missing_required); do
+    warn "Thiếu khóa bắt buộc $key, điền vào project/profile.env"
+    issues=$((issues + 1))
+  done
+  for key in $KIT_PROFILE_UNKNOWN; do
+    warn "Khóa lạ $key trong profile, gói không đọc khóa này (gõ sai hoặc khóa đã bị bỏ?)"
+    issues=$((issues + 1))
+  done
+  if [[ "$issues" -gt 0 ]]; then
+    info 'Sửa project/profile.env rồi chạy lại bin/wt doctor để kiểm mount và base_url.'
+    return 1
+  fi
+  ok 'Profile đủ khóa bắt buộc và không có khóa lạ'
+
+  info '--- Worktree đang phục vụ ---'
+  active="$(active_path)"
+  info "Đích của .active-src: $active"
+
+  info '--- Docker ---'
+  if ! docker_online; then
+    info 'BỎ QUA: Docker daemon tắt, không kiểm mount và base_url.'
+  else
+    cid="$(compose ps -q phpfpm 2>/dev/null | head -n1)" || cid=''
+    if [[ -z "$cid" ]]; then
+      info 'BỎ QUA: phpfpm chưa chạy, không kiểm mount.'
+    else
+      mount="$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/var/www/html"}}{{.Source}}{{end}}{{end}}' "$cid" 2>/dev/null)" || mount=''
+      if [[ -z "$mount" ]]; then
+        warn 'Không đọc được mount /var/www/html của phpfpm qua docker inspect'
+        issues=$((issues + 1))
+      elif [[ "$(realpath -m "$mount")" == "$active" ]]; then
+        ok "phpfpm mount đúng $active"
+      else
+        warn "phpfpm đang mount $mount nhưng .active-src trỏ tới $active. Chạy: bin/wt use '$(active_name)' để tạo lại mount"
+        issues=$((issues + 1))
+      fi
+
+      base="$(cd "$PROJECT_ROOT" && bin/mysql -N -e "select value from core_config_data where path='web/unsecure/base_url' and scope='default' limit 1" < /dev/null 2>/dev/null | head -n1)" || base=''
+      if [[ -z "$base" ]]; then
+        info 'BỎ QUA: không đọc được base_url từ DB.'
+      elif [[ -z "$KIT_DOMAIN" ]]; then
+        info 'BỎ QUA: KIT_DOMAIN trống, không so được base_url.'
+      else
+        host="$(url_host "$base")"
+        if [[ "$host" == "$KIT_DOMAIN" ]]; then
+          ok "base_url khớp KIT_DOMAIN ($KIT_DOMAIN)"
+        else
+          warn "base_url trong DB là $base (host $host) nhưng KIT_DOMAIN=$KIT_DOMAIN. Gói không tự đồng bộ, chạy bin/setup-domain hoặc sửa KIT_DOMAIN"
+          issues=$((issues + 1))
+        fi
+      fi
+    fi
+  fi
+
+  if [[ "$issues" -gt 0 ]]; then
+    warn "Có $issues vấn đề cần xử lý"
+    return 1
+  fi
+  ok 'Không thấy vấn đề nào'
+}
+
+main() {
+  local action="${1:-help}"
+  [[ $# -gt 0 ]] && shift
+  case "$action" in
+    create) create_cmd "$@" ;;
+    prepare) prepare_cmd "$@" ;;
+    list) [[ $# -eq 0 ]] || die 'Cách dùng: bin/wt list'; list_cmd ;;
+    use | switch) use_cmd "$@" ;;
+    status) [[ $# -eq 0 ]] || die 'Cách dùng: bin/wt status'; status_cmd ;;
+    mounts) [[ $# -eq 0 ]] || die 'Cách dùng: bin/wt mounts'; mounts_cmd ;;
+    path) path_cmd "$@" ;;
+    shell) shell_cmd "$@" ;;
+    remove | rm) remove_cmd "$@" ;;
+    adopt) adopt_cmd "$@" ;;
+    prune) prune_cmd "$@" ;;
+    doctor) [[ $# -eq 0 ]] || die 'Cách dùng: bin/wt doctor'; doctor_cmd ;;
+    help | -h | --help) usage ;;
+    *) usage >&2; die "Lệnh không tồn tại: $action" ;;
+  esac
+}
+
+main "$@"

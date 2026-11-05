@@ -1,0 +1,36 @@
+name: test
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Manifest khớp với dist/files
+        run: tools/release check
+      - name: Chạy toàn bộ test
+        run: bash tests/run-all.sh
+      - name: "S2: docker compose config thật cho mọi tổ hợp engine DB và overlay"
+        env:
+          KIT_REQUIRE_DOCKER: '1'
+        run: |
+          docker compose version
+          bash tests/test-compose-config.sh
+
+  shellcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: shellcheck script của repo
+        run: shellcheck -x install.sh tools/release tests/*.sh
+      - name: shellcheck script của gói (mức warning, bản chụp upstream còn note)
+        run: |
+          set -euo pipefail
+          files=()
+          while IFS= read -r f; do
+            if head -n1 "$f" | grep -Eq '^#!.*\b(ba)?sh\b'; then files+=("$f"); fi
+          done < <(find dist -type f)
+          shellcheck -x -S warning "${files[@]}"

@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# bin/deploy [locale...] - quy trình deploy chuẩn của Magento.
+# Không có tham số thì dùng KIT_STATIC_LOCALES trong project/profile.env.
+# Có tham số thì các locale đó thay cho KIT_STATIC_LOCALES. Số job theo nproc.
+set -o errexit
+
+KIT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+cd "$KIT_ROOT"
+# shellcheck source=bin/lib/profile.sh
+source "$KIT_ROOT/bin/lib/profile.sh"
+kit_profile_load "$KIT_ROOT" || exit 1
+
+if [[ $# -gt 0 ]]; then
+  LOCALES=("$@")
+else
+  read -r -a LOCALES <<< "$KIT_STATIC_LOCALES"
+fi
+
+JOBS="$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)"
+
+bin/composer install
+bin/magento maintenance:enable
+bin/cli rm -rf generated/code var/view_preprocessed
+bin/magento cache:flush
+bin/magento setup:upgrade
+bin/magento setup:di:compile
+bin/magento setup:static-content:deploy "${LOCALES[@]}" -j"$JOBS" -f
+bin/magento maintenance:disable
+bin/magento cache:flush

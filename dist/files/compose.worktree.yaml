@@ -1,0 +1,56 @@
+## Overlay worktree. bin/docker-compose nạp file này (chỉ ở chế độ dev) khi
+## .active-src là symlink, nhờ đó stack mount worktree đang phục vụ thay cho ./src.
+##
+## compose.dev.yaml mount riêng từng đường dẫn của ./src (app/code, app/etc, var...).
+## Compose gộp volume theo đích mount, nên mỗi đường dẫn đó được khai báo lại ở đây
+## với nguồn là ./.active-src, nếu không phần ruột của worktree sẽ bị ./src che mất.
+## Docker tự giải symlink .active-src.
+##
+## Dùng chung với checkout chính (./src) có chủ đích:
+##   vendor, node_modules  cài một lần, mọi worktree dùng lại
+##   pub/media             ảnh tải lên phải khớp với DB dùng chung
+##   bin, dev, lib, phpserver, setup  thư mục lõi Magento không nằm trong Git của dự án
+## Riêng từng worktree: app/, generated/, var/, pub/static/, composer.*
+## Danh sách thư mục dùng chung không phải khóa profile, muốn đổi thì dùng
+## compose.override.yaml.
+x-worktree-volumes: &worktree-volumes
+  - ./.active-src:/var/www/html:cached
+  - ./.active-src/app/code:/var/www/html/app/code:cached
+  - ./.active-src/app/design:/var/www/html/app/design:cached
+  - ./.active-src/app/etc:/var/www/html/app/etc:cached
+  - ./.active-src/composer.json:/var/www/html/composer.json:cached
+  - ./.active-src/composer.lock:/var/www/html/composer.lock:cached
+  - ./.active-src/grunt-config.json.sample:/var/www/html/grunt-config.json:cached
+  - ./.active-src/Gruntfile.js.sample:/var/www/html/Gruntfile.js:cached
+  - ./.active-src/nginx.conf.sample:/var/www/html/nginx.conf:cached
+  - ./.active-src/package.json.sample:/var/www/html/package.json:cached
+  - ./.active-src/generated:/var/www/html/generated:cached
+  - ./.active-src/var:/var/www/html/var:cached
+  - ./src/pub/media:/var/www/html/pub/media:cached
+
+services:
+  app:
+    volumes: *worktree-volumes
+
+  phpfpm:
+    volumes:
+      - ./.active-src:/var/www/html:cached
+      - ./.active-src/app/code:/var/www/html/app/code:cached
+      - ./.active-src/app/design:/var/www/html/app/design:cached
+      - ./.active-src/app/etc:/var/www/html/app/etc:cached
+      - ./.active-src/composer.json:/var/www/html/composer.json:cached
+      - ./.active-src/composer.lock:/var/www/html/composer.lock:cached
+      - ./.active-src/grunt-config.json.sample:/var/www/html/grunt-config.json:cached
+      - ./.active-src/Gruntfile.js.sample:/var/www/html/Gruntfile.js:cached
+      - ./.active-src/nginx.conf.sample:/var/www/html/nginx.conf:cached
+      - ./.active-src/package.json.sample:/var/www/html/package.json:cached
+      - ./.active-src/generated:/var/www/html/generated:cached
+      - ./.active-src/var:/var/www/html/var:cached
+      - ./src/bin:/var/www/html/bin:cached
+      - ./src/dev:/var/www/html/dev:cached
+      - ./src/lib:/var/www/html/lib:cached
+      - ./src/phpserver:/var/www/html/phpserver:cached
+      - ./src/setup:/var/www/html/setup:cached
+      - ./src/pub/media:/var/www/html/pub/media:cached
+      - ./src/vendor:/var/www/html/vendor:cached
+      - ./src/node_modules:/var/www/html/node_modules:cached

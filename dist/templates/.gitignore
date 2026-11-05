@@ -1,0 +1,6 @@
+src/
+.kit/backup/
+.kit/runtime.env
+.worktrees/
+.active-src
+env/cloudflare.env

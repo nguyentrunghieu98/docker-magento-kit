@@ -1,0 +1,126 @@
+## Mark Shust's Docker Configuration for Magento
+## (https://github.com/markshust/docker-magento)
+##
+## Version 52.1.0
+##
+## magento-docker-kit: service db lives in compose.db-<engine>.yaml, values such as
+## ports and images come from KIT_* keys in project/profile.env (see bin/docker-compose).
+
+## To use SSH, see https://github.com/markshust/docker-magento#ssh
+## Linux users, see https://github.com/markshust/docker-magento#linux
+
+## If you changed the default Docker network, you may need to replace
+## 172.17.0.1 in this file with the result of:
+## docker network inspect bridge --format='{{(index .IPAM.Config 0).Gateway}}'
+
+services:
+  app:
+    image: markoshust/magento-nginx:1.24-0
+    ports:
+      - "${KIT_HTTP_PORT:-80}:8000"
+      - "${KIT_HTTPS_PORT:-443}:8443"
+    volumes: &appvolumes
+      - ~/.composer:/var/www/.composer:cached
+      - ~/.ssh/id_rsa:/var/www/.ssh/id_rsa:cached
+      - ~/.ssh/known_hosts:/var/www/.ssh/known_hosts:cached
+      - appdata:/var/www/html
+      - sockdata:/sock
+      - ssldata:/etc/nginx/certs
+    #extra_hosts: &appextrahosts
+      ## Selenium support, replace "magento.test" with URL of your site
+      #- "magento.test:172.17.0.1"
+      ## Linux, uncomment for Xdebug capabilities:
+      #- "host.docker.internal:host-gateway"
+
+  phpfpm:
+    ## <n> below is pinned and must equal images/php/IMAGE_VERSION. KIT_PHP_VARIANT is
+    ## empty or -xdebug, written by bin/xdebug into .kit/runtime.env.
+    image: ghcr.io/nguyentrunghieu98/magento-php:${KIT_PHP_VERSION:-8.3}-fpm-1${KIT_PHP_VARIANT:-}
+    volumes: *appvolumes
+    env_file: env/phpfpm.env
+    #extra_hosts: *appextrahosts
+
+  redis:
+    image: ${KIT_REDIS_IMAGE:-valkey/valkey:8.1-alpine}
+    ports:
+      - "${KIT_REDIS_PORT:-6379}:6379"
+
+  opensearch:
+    image: markoshust/magento-opensearch:2.12-0
+    ports:
+      - "${KIT_OPENSEARCH_PORT:-9200}:9200"
+      - "9300:9300"
+    env_file: env/opensearch.env
+    environment:
+      - "discovery.type=single-node"
+      ## Avoid test failures due to small disks
+      ## More info at https://github.com/markshust/docker-magento/issues/488
+      - "cluster.routing.allocation.disk.threshold_enabled=false"
+      - "index.blocks.read_only_allow_delete"
+      ## Heap size, set by KIT_OPENSEARCH_HEAP in project/profile.env
+      - "OPENSEARCH_JAVA_OPTS=-Xms${KIT_OPENSEARCH_HEAP:-1g} -Xmx${KIT_OPENSEARCH_HEAP:-1g}"
+      ## Uncomment to increase the virtual memory map count
+      #- "max_map_count=262144"
+
+  ## If you wish to use Elasticsearch, comment out opensearch image above and
+  ## uncomment this block. Do the same in the composer.healthcheck.yaml file.
+  # Additionally, if you are performing the manual setup, you will need to
+  # update the bin/setup command to use the $ES_HOST variable as the value for
+  # the --elasticsearch-host argument passed to bin/magento setup:install.
+  #elasticsearch:
+  #  image: markoshust/magento-elasticsearch:8.13-0
+  #  ports:
+  #    - "9200:9200"
+  #    - "9300:9300"
+  #  env_file: env/elasticsearch.env
+  #  environment:
+  #    - "discovery.type=single-node"
+  #    ## Avoid test failures due to small disks
+  #    ## More info at https://github.com/markshust/docker-magento/issues/488
+  #    - "cluster.routing.allocation.disk.threshold_enabled=false"
+  #    - "index.blocks.read_only_allow_delete"
+  #    ## Uncomment to set custom heap size to avoid memory errors
+  #    #- "ES_JAVA_OPTS=-Xms1g -Xmx1g"
+  #    ## Uncomment to increase the virtual memory map count
+  #    #- "max_map_count=262144"
+  #    ## Uncomment the line below if ElasticSearch fails to start and stops after ~150 seconds with the error "container for service "elasticsearch" is unhealthy".
+  #    #- "xpack.security.enabled=false"
+
+  rabbitmq:
+    image: markoshust/magento-rabbitmq:4.1-0
+    ports:
+      - "${KIT_RABBITMQ_MANAGEMENT_PORT:-15672}:15672"
+      - "${KIT_RABBITMQ_PORT:-5672}:5672"
+    volumes:
+      - rabbitmqdata:/var/lib/rabbitmq
+    env_file: env/rabbitmq.env
+
+  mailcatcher:
+    image: sj26/mailcatcher:v0.10.0
+    ports:
+      - "1080:1080"
+
+  ## Cloudflare tunnel, enabled by KIT_COMPOSE_PROFILES=cloudflared in project/profile.env.
+  ## Token goes in env/cloudflare.env (TUNNEL_TOKEN). The ingress is managed on the
+  ## Cloudflare dashboard and points to https://app:8443 with noTLSVerify (docs/cloudflared.md).
+  ## No container_name on purpose: the ingress targets the service name, not a container.
+  tunnel:
+    profiles: ["cloudflared"]
+    image: cloudflare/cloudflared:2026.10.1
+    command: tunnel --no-autoupdate --protocol http2 --retries 2 run
+    restart: unless-stopped
+    env_file: env/cloudflare.env
+
+  ## Blackfire support, uncomment to enable
+  #blackfire:
+  #  image: blackfire/blackfire:2
+  #  ports:
+  #    - "8307"
+  #  env_file: env/blackfire.env
+
+volumes:
+  appdata:
+  dbdata:
+  rabbitmqdata:
+  sockdata:
+  ssldata:

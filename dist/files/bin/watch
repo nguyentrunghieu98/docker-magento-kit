@@ -1,0 +1,132 @@
+#!/usr/bin/env node
+
+/**
+ * Theo dõi app/code và app/design của worktree đang phục vụ (đích của .active-src,
+ * hoặc src/ khi chưa có .active-src) để bắt thay đổi JS, LESS, template.
+ * Khi có thay đổi: xoá symlink trong pub/static và var/view_preprocessed
+ * để lần F5 tiếp theo Magento tự link và biên dịch lại.
+ * Khi `bin/wt use` đổi worktree, watcher tự chuyển sang worktree mới.
+ *
+ *   bin/watch                 chạy watcher
+ *   bin/watch --print-target  in thư mục sẽ được theo dõi rồi thoát
+ */
+
+const fs = require('fs');
+const path = require('path');
+const { execSync } = require('child_process');
+
+const ROOT = path.resolve(__dirname, '..');
+
+// Đích của .active-src nếu nó là symlink còn sống, nếu không thì src/.
+function resolveSrc() {
+    const link = path.join(ROOT, '.active-src');
+    try {
+        return fs.realpathSync(link);
+    } catch (e) {
+        return path.join(ROOT, 'src');
+    }
+}
+
+let SRC = resolveSrc();
+
+function watchDirs() {
+    return [path.join(SRC, 'app/code'), path.join(SRC, 'app/design')];
+}
+
+if (process.argv.includes('--print-target')) {
+    console.log(SRC);
+    process.exit(0);
+}
+
+const EXT = new Set(['.js', '.less', '.css', '.html', '.phtml']);
+
+let debounceTimer = null;
+let pendingFiles = new Set();
+
+function clearStatic(file) {
+    pendingFiles.add(file);
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(flush, 200);
+}
+
+function flush() {
+    const files = Array.from(pendingFiles);
+    pendingFiles.clear();
+
+    const hasLess = files.some(f => f.endsWith('.less') || f.endsWith('.css'));
+    const hasJs   = files.some(f => f.endsWith('.js'));
+    const hasTpl  = files.some(f => f.endsWith('.phtml') || f.endsWith('.html'));
+
+    console.log(`\n[watch] changed: ${files.map(f => path.relative(SRC, f)).join(', ')}`);
+
+    try {
+        if (hasLess) {
+            execSync(`cd "${ROOT}" && bin/cli rm -rf var/view_preprocessed pub/static/frontend pub/static/adminhtml/_cache`, { stdio: 'inherit' });
+            console.log('[watch] cleared: var/view_preprocessed + pub/static CSS cache');
+        } else if (hasJs) {
+            // Delete the exact deployed file(s) matching changed source files so Magento re-symlinks on next request
+            for (const f of files.filter(f => f.endsWith('.js'))) {
+                // f = .../src/app/code/Vendor/Module/view/(area)/web/js/file.js
+                // deployed = pub/static/(area)/(Vendor)/(theme)/(locale)/Vendor_Module/js/file.js
+                const rel = path.relative(path.join(SRC, 'app/code'), f);
+                // rel = Vendor/Module/view/adminhtml/web/js/file.js
+                const m = rel.match(/^(\w+)\/(\w+)\/view\/(\w+)\/web\/(.+)$/);
+                if (m) {
+                    const [, vendor, module_, area, jsPath] = m;
+                    const moduleId = `${vendor}_${module_}`;
+                    // Theme nào cũng được: pub/static/<area>/<Vendor>/<theme>/<locale>/...
+                    const staticArea = area === 'adminhtml' ? 'adminhtml/*/*' : 'frontend/*/*';
+                    const pattern = `pub/static/${staticArea}/*/${moduleId}/${jsPath}`;
+                    execSync(`cd "${ROOT}" && bin/cli sh -c 'rm -f ${pattern} 2>/dev/null; true'`, { stdio: 'pipe' });
+                    console.log(`[watch] deleted: ${pattern}`);
+                }
+            }
+            execSync(`cd "${ROOT}" && bin/cli find pub/static -name 'requirejs-config.js' -delete 2>/dev/null; true`, { stdio: 'pipe' });
+            console.log('[watch] cleared: requirejs-config.js');
+        }
+        if (hasTpl) {
+            execSync(`cd "${ROOT}" && bin/magento cache:clean block_html full_page`, { stdio: 'inherit' });
+            console.log('[watch] cleared: block_html + full_page cache');
+        }
+    } catch (e) {
+        console.error('[watch] error:', e.message);
+    }
+}
+
+let watchers = [];
+
+function stopWatching() {
+    watchers.forEach(w => w.close());
+    watchers = [];
+}
+
+function watchDir(dir) {
+    if (!fs.existsSync(dir)) return;
+
+    watchers.push(fs.watch(dir, { recursive: true }, (event, filename) => {
+        if (!filename) return;
+        const ext = path.extname(filename);
+        if (!EXT.has(ext)) return;
+        clearStatic(path.join(dir, filename));
+    }));
+
+    console.log(`[watch] đang theo dõi ${path.relative(ROOT, dir)} trong ${SRC}`);
+}
+
+function startWatching() {
+    watchDirs().forEach(watchDir);
+}
+
+// Theo dõi .active-src: đổi worktree bằng `bin/wt use` thì chuyển watcher theo.
+setInterval(() => {
+    const next = resolveSrc();
+    if (next !== SRC) {
+        console.log(`[watch] worktree đang phục vụ đổi: ${SRC} -> ${next}`);
+        stopWatching();
+        SRC = next;
+        startWatching();
+    }
+}, 2000);
+
+console.log('[watch] Watcher cho môi trường dev Magento đã chạy. Sửa JS/LESS rồi F5 để thấy thay đổi.\n');
+startWatching();

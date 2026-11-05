@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+# bin/docker-compose - chỗ duy nhất ghép cấu hình Compose của dự án.
+#
+# Nạp project/profile.env rồi .kit/runtime.env, truyền -p "$KIT_PROJECT_NAME",
+# chuyển KIT_COMPOSE_PROFILES thành COMPOSE_PROFILES và chọn file Compose theo
+# thứ tự: base, file DB theo KIT_DB_ENGINE, dev, Linux, overlay worktree (khi
+# .active-src là symlink), compose.override.yaml sau cùng nếu có.
+set -Eeuo pipefail
+
+KIT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+cd "$KIT_ROOT"
+
+# shellcheck source=bin/lib/profile.sh
+source "$KIT_ROOT/bin/lib/profile.sh"
+kit_profile_load "$KIT_ROOT" || exit 1
+
+case "$KIT_DB_ENGINE" in
+  mariadb | mysql) ;;
+  *)
+    printf 'KIT_DB_ENGINE phải là mariadb hoặc mysql, nhận được: %s\n' "$KIT_DB_ENGINE" >&2
+    exit 1
+    ;;
+esac
+
+if docker compose version > /dev/null 2>&1; then
+  DOCKER_COMPOSE=(docker compose)
+else
+  DOCKER_COMPOSE=(docker-compose)
+fi
+
+COMPOSE_FILES=("compose.yaml" "compose.db-${KIT_DB_ENGINE}.yaml" "compose.healthcheck.yaml")
+
+# --no-dev bỏ file dev, file Linux và overlay worktree. Tham số này không được
+# chuyển tiếp cho docker compose.
+LOAD_DEV_FILES=1
+if [[ "${1:-}" == "--no-dev" ]]; then
+  shift 1
+  LOAD_DEV_FILES=0
+fi
+
+if [[ "$LOAD_DEV_FILES" == "1" ]]; then
+  COMPOSE_FILES+=("compose.dev.yaml")
+  if [[ "$(uname -s)" == "Linux" && -f compose.dev-linux.yaml ]]; then
+    COMPOSE_FILES+=("compose.dev-linux.yaml")
+  fi
+  # Overlay worktree nạp sau cùng trong nhóm dev để thắng volume /var/www/html.
+  if [[ -L ".active-src" && -f compose.worktree.yaml ]]; then
+    COMPOSE_FILES+=("compose.worktree.yaml")
+  fi
+fi
+
+# Dự án đổi cấu trúc Compose ở đây, nạp sau cùng.
+if [[ -f compose.override.yaml ]]; then
+  COMPOSE_FILES+=("compose.override.yaml")
+fi
+
+COMPOSE_FILES_PREFIXED=()
+for file in "${COMPOSE_FILES[@]}"; do
+  COMPOSE_FILES_PREFIXED+=("-f" "$file")
+done
+
+kit_profile_export
+export LOAD_DEV_FILES
+export COMPOSE_PROFILES="$KIT_COMPOSE_PROFILES"
+
+exec "${DOCKER_COMPOSE[@]}" -p "$KIT_PROJECT_NAME" "${COMPOSE_FILES_PREFIXED[@]}" "$@"
