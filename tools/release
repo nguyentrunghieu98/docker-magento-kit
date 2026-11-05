@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# tools/release - sinh manifest từ dist/files và phát hành một phiên bản.
+# tools/release - generate the manifest from dist/files and release a version.
 #
-#   tools/release manifest      sinh lại dist/manifest, không commit
-#   tools/release check         báo lỗi (mã 1) khi dist/manifest lệch với dist/files
-#   tools/release vX.Y.Z        sinh manifest, ghi dist/version, commit và gắn tag
+#   tools/release manifest      regenerate dist/manifest, no commit
+#   tools/release check         fail (exit 1) when dist/manifest drifts from dist/files
+#   tools/release vX.Y.Z        generate the manifest, write dist/version, commit and tag
 #
-# Mỗi dòng manifest: <sha256>  <quyền>  <đường dẫn>, sắp xếp theo đường dẫn.
-# Quyền chỉ là 755 (file thực thi) hoặc 644. Không push gì cả.
+# Each manifest line: <sha256>  <mode>  <path>, sorted by path.
+# The mode is only 755 (executable file) or 644. Nothing is pushed.
 set -Eeuo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
@@ -27,14 +27,14 @@ sha256_of() {
 }
 
 generate() {
-  [[ -d "$FILES_DIR" ]] || die "không thấy $FILES_DIR"
+  [[ -d "$FILES_DIR" ]] || die "cannot find $FILES_DIR"
   local rel mode
   (
     cd "$FILES_DIR"
     find . -type f -print | LC_ALL=C sort | while IFS= read -r rel; do
       rel="${rel#./}"
       case "$rel" in
-        *' '*) die "đường dẫn có khoảng trắng: $rel" ;;
+        *' '*) die "path contains a space: $rel" ;;
       esac
       if [[ -x "$rel" ]]; then mode=755; else mode=644; fi
       printf '%s  %s  %s\n' "$(sha256_of "$rel")" "$mode" "$rel"
@@ -47,44 +47,44 @@ cmd_manifest() {
   tmp="$(mktemp)"
   generate > "$tmp"
   mv "$tmp" "$MANIFEST"
-  printf 'đã ghi %s (%s file)\n' "dist/manifest" "$(wc -l < "$MANIFEST" | tr -d ' ')"
+  printf 'wrote %s (%s files)\n' "dist/manifest" "$(wc -l < "$MANIFEST" | tr -d ' ')"
 }
 
 cmd_check() {
-  [[ -f "$MANIFEST" ]] || die 'thiếu dist/manifest, chạy tools/release manifest'
+  [[ -f "$MANIFEST" ]] || die 'missing dist/manifest, run tools/release manifest'
   local tmp
   tmp="$(mktemp)"
   generate > "$tmp"
   if diff -u "$MANIFEST" "$tmp" >&2; then
     rm -f "$tmp"
-    printf 'manifest khớp với dist/files\n'
+    printf 'manifest matches dist/files\n'
   else
     rm -f "$tmp"
-    die 'dist/manifest lệch với dist/files, chạy tools/release manifest'
+    die 'dist/manifest drifts from dist/files, run tools/release manifest'
   fi
 }
 
 cmd_release() {
   local version="$1"
-  [[ "$version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "phiên bản phải có dạng vX.Y.Z, nhận được: $version"
-  git -C "$ROOT" rev-parse --git-dir >/dev/null 2>&1 || die 'không phải repo git'
+  [[ "$version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "version must look like vX.Y.Z, got: $version"
+  git -C "$ROOT" rev-parse --git-dir >/dev/null 2>&1 || die 'not a git repository'
   if git -C "$ROOT" rev-parse -q --verify "refs/tags/$version" >/dev/null; then
-    die "tag $version đã tồn tại"
+    die "tag $version already exists"
   fi
   if [[ -n "$(git -C "$ROOT" status --porcelain --untracked-files=no)" ]]; then
-    die 'cây làm việc còn thay đổi chưa commit, hãy commit trước khi phát hành'
+    die 'working tree has uncommitted changes, commit before releasing'
   fi
   cmd_manifest
   printf '%s\n' "$version" > "$ROOT/dist/version"
   git -C "$ROOT" add -A dist
   git -C "$ROOT" commit -q --allow-empty -m "release $version"
   git -C "$ROOT" tag -a "$version" -m "$version"
-  printf 'đã gắn tag %s. Push thủ công: git push origin main %s\n' "$version" "$version"
+  printf 'tagged %s. Push manually: git push origin main %s\n' "$version" "$version"
 }
 
 case "${1:-}" in
   manifest) cmd_manifest ;;
   check) cmd_check ;;
   v*) cmd_release "$1" ;;
-  *) die 'cách dùng: tools/release manifest|check|vX.Y.Z' ;;
+  *) die 'usage: tools/release manifest|check|vX.Y.Z' ;;
 esac

@@ -9,11 +9,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Manifest khớp với dist/files
+      - name: Manifest matches dist/files
         run: tools/release check
-      - name: Chạy toàn bộ test
+      - name: Run the full test suite
         run: bash tests/run-all.sh
-      - name: "S2: docker compose config thật cho mọi tổ hợp engine DB và overlay"
+      - name: "S2: real docker compose config for every DB engine and overlay combination"
         env:
           KIT_REQUIRE_DOCKER: '1'
         run: |
@@ -24,9 +24,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: shellcheck script của repo
+      - name: shellcheck the repo scripts
         run: shellcheck -x install.sh tools/release tests/*.sh
-      - name: shellcheck script của gói (mức warning, bản chụp upstream còn note)
+      - name: shellcheck the package scripts (warning level, the upstream snapshot still has notes)
         run: |
           set -euo pipefail
           files=()

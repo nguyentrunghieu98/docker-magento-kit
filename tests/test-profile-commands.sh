@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
-# Test S1 cho các lệnh lấy giá trị từ file profile: bin/setup, bin/setup-domain,
-# bin/setup-ssl, bin/deploy, `install.sh new --setup`, Makefile với project/bin,
-# và file OPcache. Lệnh con (bin/magento, bin/start, ...) được thay bằng stub ghi log.
+# S1 test for the commands that read values from the profile file: bin/setup,
+# bin/setup-domain, bin/setup-ssl, bin/deploy, `install.sh new --setup`, the Makefile
+# with project/bin and the OPcache file. Child commands (bin/magento, bin/start, ...)
+# are replaced by logging stubs.
 #
 # Usage:  bash tests/test-profile-commands.sh
 set -Eeuo pipefail
 # shellcheck source=tests/lib.sh
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)/lib.sh"
 
-# Docker giả: ghi lệnh, trả thông tin bộ nhớ để qua kiểm tra RAM của setup và start.
+# Fake docker: log commands, report memory so the RAM checks in setup and start pass.
 install_docker() {
   cat > "$SANDBOX/.fakebin/docker" <<'STUB'
 #!/usr/bin/env bash
@@ -20,7 +21,7 @@ fi
 exit 0
 STUB
   chmod 755 "$SANDBOX/.fakebin/docker"
-  # sudo giả: không bao giờ ghi /etc/hosts thật.
+  # Fake sudo: never writes the real /etc/hosts.
   cat > "$SANDBOX/.fakebin/sudo" <<'STUB'
 #!/usr/bin/env bash
 printf 'sudo %s\n' "$*" >> "${KIT_LOG_DIR:?}/sudo.log"
@@ -29,11 +30,11 @@ STUB
   chmod 755 "$SANDBOX/.fakebin/sudo"
 }
 
-# Stub ghi `<tên> <tham số>` vào calls.log cho từng lệnh bin/ đã cho.
+# Stub that writes `<name> <args>` to calls.log for each given bin/ command.
 stub_bins() {
   local name
   for name in "$@"; do
-  # Chuỗi cho shell con hoặc fixture, giữ nguyên ký tự $.
+  # String for a subshell or a fixture, left with its literal $ character.
   # shellcheck disable=SC2016
     printf '#!/usr/bin/env bash\nprintf "%s %%s\\n" "$*" >> "${KIT_LOG_DIR:?}/calls.log"\n' "$name" > "$ROOT/bin/$name"
     chmod 755 "$ROOT/bin/$name"
@@ -42,7 +43,7 @@ stub_bins() {
 
 calls() { cat "$KIT_LOG_DIR/calls.log" 2>/dev/null || true; }
 
-# Docker root đã cài, KIT_DOMAIN và KIT_STATIC_LOCALES theo tham số (có thể rỗng).
+# Installed Docker root, KIT_DOMAIN and KIT_STATIC_LOCALES from the arguments (may be empty).
 new_root() {
   local domain="${1-shop.test}" locales="${2-}"
   sandbox_new
@@ -126,7 +127,7 @@ test_setup_ssl_stops_without_domain() {
   assert_docker_not_called 'docker was not called'
 }
 
-# nproc giả để số job không phụ thuộc máy chạy test.
+# Fake nproc so the job count does not depend on the test machine.
 fake_nproc() {
   printf '#!/usr/bin/env bash\necho %s\n' "$1" > "$SANDBOX/.fakebin/nproc"
   chmod 755 "$SANDBOX/.fakebin/nproc"
@@ -208,7 +209,7 @@ test_make_rejects_clashing_name() {
   chmod 755 "$ROOT/project/bin/deploy"
   run_in "$ROOT" make deploy
   assert_status_nonzero 'make refuses a project command named like a package command'
-  assert_contains 'trùng tên' 'message says the name clashes'
+  assert_contains 'clashes with a package command' 'message says the name clashes'
   assert_contains 'deploy' 'message names the command'
   assert_not_contains 'hijacked' 'the project command did not run'
 }
@@ -217,7 +218,7 @@ test_make_keeps_wt_target() {
   assert_file_matches "$KIT_REPO_ROOT/dist/files/Makefile" '^wt:' 'Makefile has the wt target'
 }
 
-# Docker giả đủ cho bin/download và bin/setup chạy thật trong sandbox.
+# Fake docker complete enough for bin/download and bin/setup to really run in the sandbox.
 test_installer_setup_runs_download_then_setup() {
   sandbox_new
   install_docker

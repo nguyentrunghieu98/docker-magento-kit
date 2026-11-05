@@ -1,17 +1,17 @@
-## Overlay worktree. bin/docker-compose nạp file này (chỉ ở chế độ dev) khi
-## .active-src là symlink, nhờ đó stack mount worktree đang phục vụ thay cho ./src.
+## Worktree overlay. bin/docker-compose loads this file (in dev mode only) when
+## .active-src is a symlink, so the stack mounts the active worktree instead of ./src.
 ##
-## compose.dev.yaml mount riêng từng đường dẫn của ./src (app/code, app/etc, var...).
-## Compose gộp volume theo đích mount, nên mỗi đường dẫn đó được khai báo lại ở đây
-## với nguồn là ./.active-src, nếu không phần ruột của worktree sẽ bị ./src che mất.
-## Docker tự giải symlink .active-src.
+## compose.dev.yaml mounts each ./src path separately (app/code, app/etc, var...).
+## Compose merges volumes by mount target, so each of those paths is redeclared here
+## with ./.active-src as the source; otherwise ./src would hide the worktree contents.
+## Docker resolves the .active-src symlink itself.
 ##
-## Dùng chung với checkout chính (./src) có chủ đích:
-##   vendor, node_modules  cài một lần, mọi worktree dùng lại
-##   pub/media             ảnh tải lên phải khớp với DB dùng chung
-##   bin, dev, lib, phpserver, setup  thư mục lõi Magento không nằm trong Git của dự án
-## Riêng từng worktree: app/, generated/, var/, pub/static/, composer.*
-## Danh sách thư mục dùng chung không phải khóa profile, muốn đổi thì dùng
+## Deliberately shared with the main checkout (./src):
+##   vendor, node_modules  installed once, reused by every worktree
+##   pub/media             uploaded images must match the shared DB
+##   bin, dev, lib, phpserver, setup  Magento core directories not tracked in the project Git
+## Per worktree: app/, generated/, var/, pub/static/, composer.*
+## The shared-directory list is not a profile key; to change it, use
 ## compose.override.yaml.
 x-worktree-volumes: &worktree-volumes
   - ./.active-src:/var/www/html:cached

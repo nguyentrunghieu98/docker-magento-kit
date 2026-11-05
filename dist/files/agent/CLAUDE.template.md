@@ -1,6 +1,6 @@
 @AGENTS.md
 
-## Riêng cho Claude Code
+## Claude Code specifics
 
-- Subagent `magento-*` nằm ở `.claude/agents/`, skill ở `.claude/skills/`.
-- Việc nhỏ làm thẳng. Giao `magento-developer` khi thay đổi đã chốt phạm vi.
+- `magento-*` subagents live in `.claude/agents/`, skills in `.claude/skills/`.
+- Do small work directly. Hand off to `magento-developer` when the change has a settled scope.

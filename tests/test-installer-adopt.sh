@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Test S1 cho `install.sh adopt`: Docker root giả lập kiểu Format (markshust đã
-# sửa tay: MySQL 8.0.45, Redis cổng 6378, service tunnel, image PHP tự build,
-# file lạ), nhận bằng --source, không cần mạng. Tự dựng fixture, không đọc dự án thật.
+# S1 test for `install.sh adopt`: a Format-style Docker root fixture (markshust
+# hand-edited: MySQL 8.0.45, Redis on port 6378, a tunnel service, a self-built PHP
+# image, stray files), adopted from --source with no network. Builds its own fixture,
+# it never reads a real project.
 #
 # Usage:  bash tests/test-installer-adopt.sh
 set -Eeuo pipefail
@@ -10,7 +11,7 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)/lib.sh"
 
 DIST="$KIT_REPO_ROOT/dist"
 
-# compose.yaml kiểu Format: có phần comment chứa giá trị khác để thử parser.
+# Format-style compose.yaml: commented-out entries with other values exercise the parser.
 write_format_compose() {
   cat > "$1" <<'YAML'
 services:
@@ -58,18 +59,19 @@ volumes:
 YAML
 }
 
-# Dựng $SANDBOX/format: mọi file của gói đúng bản kit, trừ compose.yaml (sửa
-# tay), bin/setup (sửa tay) và bin/wt (chưa có). Kèm template tùy biến, file lạ,
-# src/ là clone git với remote tên `orgin`, .worktrees/ và .active-src.
+# Build $SANDBOX/format: every package file matches the kit release, except compose.yaml
+# (hand-edited), bin/setup (hand-edited) and bin/wt (missing). Plus a customized
+# template, stray files, src/ as a git clone with a remote named `orgin`, .worktrees/
+# and .active-src.
 fixture_format() {
   local root="$SANDBOX/${1:-format}"
   mkdir -p "$root"
   cp -a "$DIST/files/." "$root/"
   write_format_compose "$root/compose.yaml"
-  printf '\n# sửa tay\nexport FOO=1\n' >> "$root/bin/setup"
+  printf '\n# hand edit\nexport FOO=1\n' >> "$root/bin/setup"
   rm -f "$root/bin/wt"
   mkdir -p "$root/env" "$root/images/php/8.2" "$root/src" "$root/.worktrees/feat-x"
-  printf 'MYSQL_ROOT_PASSWORD=doi-roi\n' > "$root/env/db.env"
+  printf 'MYSQL_ROOT_PASSWORD=changed\n' > "$root/env/db.env"
   printf 'FROM php:8.2-fpm\n' > "$root/images/php/8.2/dockerfile"
   printf 'echo hi\n' > "$root/deploy-format.sh"
   printf 'x\n' > "$root/.worktrees/feat-x/file"
@@ -77,7 +79,7 @@ fixture_format() {
   git_remote_new
   rm -rf "$root/src"
   git clone -q -o orgin "$BARE_REMOTE" "$root/src"
-  printf 'mới\n' > "$root/src/untracked.txt"
+  printf 'new\n' > "$root/src/untracked.txt"
   FIXTURE="$root"
 }
 
@@ -85,7 +87,7 @@ adopt() {
   run_installer adopt "$FIXTURE" --source "$KIT_REPO_ROOT" "$@"
 }
 
-# Đưa file của gói về đúng bản gói, như khi người dùng đã chuyển phần tùy biến đi.
+# Restore a package file to the package version, as if the user had moved the customization out.
 restore_pkg_file() {
   cp -p "$DIST/files/$1" "$FIXTURE/$1"
 }
@@ -104,14 +106,14 @@ test_adopt_dry_run_lists_conflicts_and_writes_nothing() {
   before="$(tree_digest "$FIXTURE")"
   adopt --dry-run
   assert_status 1 'adopt reports conflicts with a non-zero exit'
-  assert_contains 'XUNG ĐỘT: compose.yaml' 'compose.yaml is an update conflict'
-  assert_contains 'XUNG ĐỘT: bin/setup' 'a hand-edited bin script is an update conflict'
-  assert_equals 2 "$(grep -c 'XUNG ĐỘT' <<< "$OUTPUT")" 'exactly the two edited package files conflict'
-  assert_not_contains 'XUNG ĐỘT: bin/start' 'an identical package file is not a conflict'
+  assert_contains 'CONFLICT: compose.yaml' 'compose.yaml is an update conflict'
+  assert_contains 'CONFLICT: bin/setup' 'a hand-edited bin script is an update conflict'
+  assert_equals 2 "$(grep -c 'CONFLICT' <<< "$OUTPUT")" 'exactly the two edited package files conflict'
+  assert_not_contains 'CONFLICT: bin/start' 'an identical package file is not a conflict'
   assert_contains 'compose.override.yaml' 'the compose conflict hints at compose.override.yaml'
   assert_contains 'project/bin/' 'the bin conflict hints at project/bin/'
   assert_contains 'project/profile.env' 'conflict hints name the profile file'
-  assert_contains 'ghi mới: bin/wt' 'a missing package file is planned as a write'
+  assert_contains 'new file: bin/wt' 'a missing package file is planned as a write'
   assert_contains 'images/' 'stray directory images/ is reported'
   assert_contains 'deploy-format.sh' 'stray file is reported'
   assert_not_contains '  env/db.env' 'a template target that exists is not reported as stray'
@@ -143,7 +145,7 @@ test_adopt_without_force_stops_and_round_trips() {
   restore_pkg_file bin/setup
   adopt
   assert_status 1 'a second round with one conflict left still stops'
-  assert_equals 1 "$(grep -c 'XUNG ĐỘT: ' <<< "$OUTPUT")" 'the conflict list shrinks as customizations move out'
+  assert_equals 1 "$(grep -c 'CONFLICT: ' <<< "$OUTPUT")" 'the conflict list shrinks as customizations move out'
   restore_pkg_file compose.yaml
   adopt
   assert_status 0 'adopt succeeds once no conflict is left'
@@ -161,17 +163,17 @@ test_adopt_writes_guessed_profile() {
   assert_status 0 'adopt --force succeeds'
   local profile="$FIXTURE/project/profile.env"
   assert_file "$profile" 'profile is created from the template'
-  assert_file_line "$profile" 'KIT_PROJECT_NAME=format  # adopt đoán, kiểm tra lại' 'project name guessed from the directory'
-  assert_file_line "$profile" 'KIT_GIT_REMOTE=orgin  # adopt đoán, kiểm tra lại' 'Git remote guessed from src/'
-  assert_file_line "$profile" 'KIT_GIT_BASE_BRANCH=master  # adopt đoán, kiểm tra lại' 'base branch guessed'
-  assert_file_line "$profile" 'KIT_GIT_TARGET_BRANCH=staging  # adopt đoán, kiểm tra lại' 'target branch guessed'
-  assert_file_line "$profile" 'KIT_PHP_VERSION=8.2  # adopt đoán, kiểm tra lại' 'PHP version from the phpfpm image'
-  assert_file_line "$profile" 'KIT_DB_ENGINE=mysql  # adopt đoán, kiểm tra lại' 'DB engine from compose.yaml'
-  assert_file_line "$profile" 'KIT_DB_VERSION=8.0.45  # adopt đoán, kiểm tra lại' 'DB version from compose.yaml'
-  assert_file_line "$profile" 'KIT_REDIS_IMAGE=redis:7.2-alpine  # adopt đoán, kiểm tra lại' 'Redis image from compose.yaml'
-  assert_file_line "$profile" 'KIT_REDIS_PORT=6378  # adopt đoán, kiểm tra lại' 'Redis host port from compose.yaml'
-  assert_file_line "$profile" 'KIT_HTTPS_PORT=443  # adopt đoán, kiểm tra lại' 'HTTPS port from compose.yaml'
-  assert_file_line "$profile" 'KIT_OPENSEARCH_HEAP=2g  # adopt đoán, kiểm tra lại' 'OpenSearch heap from compose.yaml'
+  assert_file_line "$profile" 'KIT_PROJECT_NAME=format  # adopt guess, verify it' 'project name guessed from the directory'
+  assert_file_line "$profile" 'KIT_GIT_REMOTE=orgin  # adopt guess, verify it' 'Git remote guessed from src/'
+  assert_file_line "$profile" 'KIT_GIT_BASE_BRANCH=master  # adopt guess, verify it' 'base branch guessed'
+  assert_file_line "$profile" 'KIT_GIT_TARGET_BRANCH=staging  # adopt guess, verify it' 'target branch guessed'
+  assert_file_line "$profile" 'KIT_PHP_VERSION=8.2  # adopt guess, verify it' 'PHP version from the phpfpm image'
+  assert_file_line "$profile" 'KIT_DB_ENGINE=mysql  # adopt guess, verify it' 'DB engine from compose.yaml'
+  assert_file_line "$profile" 'KIT_DB_VERSION=8.0.45  # adopt guess, verify it' 'DB version from compose.yaml'
+  assert_file_line "$profile" 'KIT_REDIS_IMAGE=redis:7.2-alpine  # adopt guess, verify it' 'Redis image from compose.yaml'
+  assert_file_line "$profile" 'KIT_REDIS_PORT=6378  # adopt guess, verify it' 'Redis host port from compose.yaml'
+  assert_file_line "$profile" 'KIT_HTTPS_PORT=443  # adopt guess, verify it' 'HTTPS port from compose.yaml'
+  assert_file_line "$profile" 'KIT_OPENSEARCH_HEAP=2g  # adopt guess, verify it' 'OpenSearch heap from compose.yaml'
   assert_file_line "$profile" 'KIT_DOMAIN=' 'KIT_DOMAIN stays empty'
   assert_file_line_count 0 "$profile" '^KIT_DB_PORT=3307' 'no value comes from commented lines'
   assert_file_does_not_match "$profile" '^KIT_COMPOSE_PROFILES=' 'cloudflared profile is not guessed'
@@ -199,7 +201,7 @@ test_adopt_keeps_project_state_and_files() {
   adopt --force
   after="$(untouchable_digest)"
   assert_equals "$before" "$after" 'src/, .worktrees/ and .active-src are untouched'
-  assert_file_line "$FIXTURE/env/db.env" 'MYSQL_ROOT_PASSWORD=doi-roi' 'an existing template target is kept'
+  assert_file_line "$FIXTURE/env/db.env" 'MYSQL_ROOT_PASSWORD=changed' 'an existing template target is kept'
   assert_file "$FIXTURE/images/php/8.2/dockerfile" 'stray directory is not removed'
   assert_file "$FIXTURE/deploy-format.sh" 'stray file is not removed'
   assert_docker_not_called 'adopt never calls docker'
@@ -209,10 +211,10 @@ test_adopt_keeps_existing_profile() {
   sandbox_new
   fixture_format
   mkdir -p "$FIXTURE/project"
-  printf 'KIT_PROJECT_NAME=giu-nguyen\n' > "$FIXTURE/project/profile.env"
+  printf 'KIT_PROJECT_NAME=keep-original\n' > "$FIXTURE/project/profile.env"
   adopt --force
   assert_status 0 'adopt succeeds with an existing profile'
-  assert_equals 'KIT_PROJECT_NAME=giu-nguyen' "$(cat "$FIXTURE/project/profile.env")" 'an existing profile is never touched'
+  assert_equals 'KIT_PROJECT_NAME=keep-original' "$(cat "$FIXTURE/project/profile.env")" 'an existing profile is never touched'
 }
 
 test_adopt_git_keys_need_unambiguous_remote() {
@@ -239,7 +241,7 @@ test_adopt_then_self_update_is_clean() {
   adopt --force
   run_in "$FIXTURE" bin/self-update --source "$KIT_REPO_ROOT" --dry-run
   assert_status 0 'self-update right after adopt has no conflict'
-  assert_not_contains 'XUNG ĐỘT' 'self-update reports no conflict'
+  assert_not_contains 'CONFLICT' 'self-update reports no conflict'
 }
 
 test_adopt_refuses_managed_root_and_non_root() {
@@ -251,7 +253,7 @@ test_adopt_refuses_managed_root_and_non_root() {
   mkdir -p "$SANDBOX/empty"
   run_installer adopt "$SANDBOX/empty" --source "$KIT_REPO_ROOT"
   assert_status_nonzero 'adopt refuses a directory without compose.yaml'
-  run_installer adopt "$SANDBOX/khong-co" --source "$KIT_REPO_ROOT"
+  run_installer adopt "$SANDBOX/no-such-dir" --source "$KIT_REPO_ROOT"
   assert_status_nonzero 'adopt refuses a missing directory'
   run_installer adopt "$SANDBOX/shop" --domain x.test --source "$KIT_REPO_ROOT"
   assert_status_nonzero 'adopt does not take --domain'

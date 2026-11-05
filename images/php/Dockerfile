@@ -1,10 +1,10 @@
-# Image PHP của magento-docker-kit. Dựa trên image Format (images/php/8.2).
+# PHP image for magento-docker-kit. Based on the Format image (images/php/8.2).
 # Build: docker build --build-arg PHP_VERSION=8.2.35 --target base|xdebug images/php
 ARG PHP_VERSION=8.2.35
 
 FROM php:${PHP_VERSION}-fpm-bookworm AS base
 LABEL org.opencontainers.image.source="https://github.com/nguyentrunghieu98/magento-docker-kit"
-LABEL org.opencontainers.image.description="PHP-FPM cho Magento 2 (magento-docker-kit)"
+LABEL org.opencontainers.image.description="PHP-FPM for Magento 2 (magento-docker-kit)"
 
 ARG APP_ID=1000
 RUN groupadd -g "$APP_ID" app \
@@ -111,7 +111,7 @@ USER app:app
 VOLUME /var/www
 WORKDIR /var/www/html
 
-# Biến thể -xdebug. Socket vẫn là /sock/docker.sock, nginx không phải sửa.
+# The -xdebug variant. The socket stays /sock/docker.sock, so nginx needs no change.
 FROM base AS xdebug
 USER root
 RUN pecl channel-update pecl.php.net \

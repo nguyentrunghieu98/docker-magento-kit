@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Seam S2: `docker compose config` thật (không cần daemon) cho mọi tổ hợp engine
-# DB và overlay worktree, kiểm tên project và tên volume theo KIT_PROJECT_NAME.
+# Seam S2: real `docker compose config` (no daemon needed) for every DB engine
+# and worktree overlay combination, checking project and volume names against KIT_PROJECT_NAME.
 #
-# Không có docker compose thì bỏ qua, trừ khi đặt KIT_REQUIRE_DOCKER=1 (CI đặt).
+# Without docker compose this is skipped, unless KIT_REQUIRE_DOCKER=1 is set (CI sets it).
 #
 # Usage:  bash tests/test-compose-config.sh
 set -Eeuo pipefail
@@ -11,14 +11,14 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)/lib.sh"
 
 if ! docker compose version >/dev/null 2>&1; then
   if [[ "${KIT_REQUIRE_DOCKER:-}" == 1 ]]; then
-    printf 'cần docker compose để chạy seam S2\n' >&2
+    printf 'docker compose is required to run seam S2\n' >&2
     exit 1
   fi
-  printf '# bỏ qua S2: không có docker compose\n1..0\n'
+  printf '# skipping S2: no docker compose\n1..0\n'
   exit 0
 fi
 
-# Docker thật: sandbox chỉ dùng để có Docker root, bỏ docker giả ra khỏi PATH.
+# Real Docker: the sandbox only provides a Docker root, so remove the fake docker from PATH.
 new_root() {
   sandbox_new
   export PATH="$ORIG_PATH"
@@ -30,7 +30,7 @@ config() {
   run_in "$SANDBOX" "$ROOT/bin/docker-compose" config "$@"
 }
 
-# Giá trị `name:` ở dòng đầu của `docker compose config`.
+# The `name:` value on the first line of `docker compose config`.
 project_of() { printf '%s\n' "$OUTPUT" | sed -n 's/^name: //p' | head -n 1; }
 
 check_matrix_case() {

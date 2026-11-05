@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Test S1 cho bin/xdebug: trạng thái runtime và lệnh recreate trong log docker.
+# S1 tests for bin/xdebug: runtime state and the recreate command in the docker log.
 #
 # Usage:  bash tests/test-xdebug.sh
 set -Eeuo pipefail

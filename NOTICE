@@ -1,8 +1,8 @@
 magento-docker-kit
 Copyright (c) 2026 magento-docker-kit contributors
 
-Gói này dựa trên markshust/docker-magento, phiên bản 52.1.0
+This package is based on markshust/docker-magento, version 52.1.0
 (https://github.com/markshust/docker-magento, tag 52.1.0, commit 01c5b6afc68cd639ba94f990f16e9a66d218896c).
-Bản chụp upstream nằm trong dist/files và dist/templates.
-Upstream phát hành theo giấy phép MIT, Copyright (c) 2016 Mage Inferno.
-Nội dung giấy phép nằm trong file LICENSE.
+The upstream snapshot lives in dist/files and dist/templates.
+Upstream is released under the MIT license, Copyright (c) 2016 Mage Inferno.
+The license text is in the LICENSE file.

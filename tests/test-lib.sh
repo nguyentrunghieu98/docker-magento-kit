@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Test cho chính thư viện tests/lib.sh: docker giả, bare remote, assert_*.
+# Tests for the tests/lib.sh library itself: fake docker, bare remote, assert_*.
 #
 # Usage:  bash tests/test-lib.sh
 set -Eeuo pipefail
@@ -52,7 +52,7 @@ test_asserts_report_failures() {
   local fails_before="$FAILED" checks_before="$CHECKS"
   assert_equals a b 'deliberate failure' >/dev/null
   local delta=$((FAILED - fails_before))
-  # hoàn tác lỗi cố ý để bộ test này không tự đỏ
+  # undo the deliberate failure so this test file does not go red itself
   FAILED=$((FAILED - delta))
   CHECKS=$((checks_before))
   pass_ 'a failing assert increments the failure counter'

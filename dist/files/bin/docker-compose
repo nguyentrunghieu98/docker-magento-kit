@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# bin/docker-compose - chỗ duy nhất ghép cấu hình Compose của dự án.
+# bin/docker-compose - the single place that assembles the project Compose configuration.
 #
-# Nạp project/profile.env rồi .kit/runtime.env, truyền -p "$KIT_PROJECT_NAME",
-# chuyển KIT_COMPOSE_PROFILES thành COMPOSE_PROFILES và chọn file Compose theo
-# thứ tự: base, file DB theo KIT_DB_ENGINE, dev, Linux, overlay worktree (khi
-# .active-src là symlink), compose.override.yaml sau cùng nếu có.
+# Loads project/profile.env then .kit/runtime.env, passes -p "$KIT_PROJECT_NAME",
+# turns KIT_COMPOSE_PROFILES into COMPOSE_PROFILES and picks Compose files in
+# this order: base, DB file per KIT_DB_ENGINE, dev, Linux, worktree overlay (when
+# .active-src is a symlink), compose.override.yaml last if present.
 set -Eeuo pipefail
 
 KIT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
@@ -17,7 +17,7 @@ kit_profile_load "$KIT_ROOT" || exit 1
 case "$KIT_DB_ENGINE" in
   mariadb | mysql) ;;
   *)
-    printf 'KIT_DB_ENGINE phải là mariadb hoặc mysql, nhận được: %s\n' "$KIT_DB_ENGINE" >&2
+    printf 'KIT_DB_ENGINE must be mariadb or mysql, got: %s\n' "$KIT_DB_ENGINE" >&2
     exit 1
     ;;
 esac
@@ -30,8 +30,8 @@ fi
 
 COMPOSE_FILES=("compose.yaml" "compose.db-${KIT_DB_ENGINE}.yaml" "compose.healthcheck.yaml")
 
-# --no-dev bỏ file dev, file Linux và overlay worktree. Tham số này không được
-# chuyển tiếp cho docker compose.
+# --no-dev drops the dev file, the Linux file and the worktree overlay. This flag
+# is not forwarded to docker compose.
 LOAD_DEV_FILES=1
 if [[ "${1:-}" == "--no-dev" ]]; then
   shift 1
@@ -43,13 +43,13 @@ if [[ "$LOAD_DEV_FILES" == "1" ]]; then
   if [[ "$(uname -s)" == "Linux" && -f compose.dev-linux.yaml ]]; then
     COMPOSE_FILES+=("compose.dev-linux.yaml")
   fi
-  # Overlay worktree nạp sau cùng trong nhóm dev để thắng volume /var/www/html.
+  # The worktree overlay loads last within the dev group so it wins the /var/www/html volume.
   if [[ -L ".active-src" && -f compose.worktree.yaml ]]; then
     COMPOSE_FILES+=("compose.worktree.yaml")
   fi
 fi
 
-# Dự án đổi cấu trúc Compose ở đây, nạp sau cùng.
+# The project changes the Compose structure here; loaded last.
 if [[ -f compose.override.yaml ]]; then
   COMPOSE_FILES+=("compose.override.yaml")
 fi

@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# Test S1 cho `bin/self-update`: Docker root sandbox cài bằng --source, nâng và hạ
-# phiên bản giữa hai bản gói dựng trong sandbox, không cần mạng.
+# S1 tests for `bin/self-update`: Docker root sandbox installed with --source,
+# upgrading and downgrading between two package builds in the sandbox, no network needed.
 #
 # Usage:  bash tests/test-self-update.sh
 set -Eeuo pipefail
 # shellcheck source=tests/lib.sh
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)/lib.sh"
 
-# Dựng một bản gói mới ở $SANDBOX/<tên> từ checkout hiện tại: dist/, tools/release
-# và (tùy chọn) CHANGELOG.md. Sau khi sửa dist/files hãy gọi kit_seal.
+# Build a new package version at $SANDBOX/<name> from the current checkout: dist/,
+# tools/release and (optionally) CHANGELOG.md. Call kit_seal after editing dist/files.
 kit_make() {
   local name="$1" version="$2" dir="$SANDBOX/$1"
   mkdir -p "$dir"
@@ -18,12 +18,12 @@ kit_make() {
   kit_seal "$name"
 }
 
-# Sinh lại manifest cho bản gói sau khi sửa dist/files.
+# Regenerate the package manifest after editing dist/files.
 kit_seal() {
   "$SANDBOX/$1/tools/release" manifest >/dev/null
 }
 
-# Cài bản "cũ" (v1.0.0) vào $SANDBOX/shop, chuẩn bị bản "mới" (v1.1.0) ở $SANDBOX/new.
+# Install the old build (v1.0.0) into $SANDBOX/shop, prepare the new build (v1.1.0) in $SANDBOX/new.
 setup_pair() {
   sandbox_new
   kit_make old v1.0.0
@@ -38,14 +38,14 @@ selfupdate() {
   run_in "$SHOP" bin/self-update "$@"
 }
 
-# Cây của Docker root, không tính sao lưu.
+# Tree of the Docker root, excluding backups.
 shop_digest() {
   tree_digest "$SHOP" | grep -v '\.kit/backup/'
 }
 
 test_update_clean() {
   setup_pair
-  printf '# thêm ở v1.1.0\n' >> "$NEW/dist/files/Makefile"
+  printf '# added in v1.1.0\n' >> "$NEW/dist/files/Makefile"
   printf '# v1.1.0\n' >> "$NEW/dist/files/bin/self-update"
   printf '#!/usr/bin/env bash\necho hi\n' > "$NEW/dist/files/bin/newcmd"
   chmod 755 "$NEW/dist/files/bin/newcmd"
@@ -78,27 +78,27 @@ test_update_same_version_is_noop() {
 
 test_local_edit_of_unchanged_file_is_kept() {
   setup_pair
-  printf '# của tôi\n' >> "$SHOP/Makefile"
+  printf '# mine\n' >> "$SHOP/Makefile"
   printf '# v1.1.0\n' >> "$NEW/dist/files/compose.yaml"
   kit_seal new
   selfupdate --source "$NEW"
   assert_status 0 'a local edit to a file the new version did not change is not a conflict'
-  assert_file_line "$SHOP/Makefile" '# của tôi' 'that local edit is kept'
+  assert_file_line "$SHOP/Makefile" '# mine' 'that local edit is kept'
   assert_file_line "$SHOP/compose.yaml" '# v1.1.0' 'other files still update'
 }
 
 test_update_conflict_writes_nothing() {
   setup_pair
-  printf '# sửa tay\n' >> "$SHOP/Makefile"
-  printf '# bản mới\n' >> "$NEW/dist/files/Makefile"
-  printf '# bản mới\n' >> "$NEW/dist/files/compose.yaml"
+  printf '# manual edit\n' >> "$SHOP/Makefile"
+  printf '# new version\n' >> "$NEW/dist/files/Makefile"
+  printf '# new version\n' >> "$NEW/dist/files/compose.yaml"
   kit_seal new
   local before
   before="$(shop_digest)"
   selfupdate --source "$NEW"
   assert_status_nonzero 'a conflict exits non-zero'
-  assert_contains 'XUNG ĐỘT' 'the plan marks the conflict'
-  assert_contains '-# sửa tay' 'the conflict prints a diff of the local file against the new version'
+  assert_contains 'CONFLICT' 'the plan marks the conflict'
+  assert_contains '-# manual edit' 'the conflict prints a diff of the local file against the new version'
   assert_equals "$before" "$(shop_digest)" 'a conflict writes nothing, not even the files without conflict'
   assert_file_line "$SHOP/.kit/version" 'v1.0.0' 'the version is unchanged after a conflict'
 }
@@ -107,19 +107,19 @@ test_removed_files() {
   setup_pair
   rm -f "$NEW/dist/files/bin/stopall" "$NEW/dist/files/bin/removeall"
   kit_seal new
-  printf '# sửa tay\n' >> "$SHOP/bin/removeall"
+  printf '# manual edit\n' >> "$SHOP/bin/removeall"
   selfupdate --source "$NEW"
   assert_status 0 'dropped files do not make a conflict'
   assert_absent "$SHOP/bin/stopall" 'a dropped file that was not edited is deleted'
-  assert_file_line "$SHOP/bin/removeall" '# sửa tay' 'a dropped file that was edited is kept'
+  assert_file_line "$SHOP/bin/removeall" '# manual edit' 'a dropped file that was edited is kept'
   assert_contains 'bin/removeall' 'the warning names the kept file'
-  assert_contains 'cảnh báo' 'the kept file is reported as a warning'
+  assert_contains 'warning' 'the kept file is reported as a warning'
   assert_not_contains 'bin/removeall' 'the manifest no longer tracks the kept file' "$(cat "$SHOP/.kit/manifest")"
 }
 
 test_dry_run_writes_nothing() {
   setup_pair
-  printf '# bản mới\n' >> "$NEW/dist/files/Makefile"
+  printf '# new version\n' >> "$NEW/dist/files/Makefile"
   printf '#!/usr/bin/env bash\n' > "$NEW/dist/files/bin/newcmd"
   chmod 755 "$NEW/dist/files/bin/newcmd"
   rm -f "$NEW/dist/files/bin/stopall"
@@ -130,7 +130,7 @@ test_dry_run_writes_nothing() {
   assert_status 0 '--dry-run exits 0 when there is no conflict'
   assert_contains 'bin/newcmd' '--dry-run prints the plan'
   assert_equals "$before" "$(tree_digest "$SHOP")" '--dry-run writes nothing'
-  printf '# sửa tay\n' >> "$SHOP/Makefile"
+  printf '# manual edit\n' >> "$SHOP/Makefile"
   before="$(tree_digest "$SHOP")"
   selfupdate --dry-run --source "$NEW"
   assert_status_nonzero '--dry-run still reports a conflict with a non-zero status'
@@ -139,30 +139,30 @@ test_dry_run_writes_nothing() {
 
 test_force_backs_up_conflicts() {
   setup_pair
-  printf '# sửa tay\n' >> "$SHOP/Makefile"
-  printf '# bản mới\n' >> "$NEW/dist/files/Makefile"
+  printf '# manual edit\n' >> "$SHOP/Makefile"
+  printf '# new version\n' >> "$NEW/dist/files/Makefile"
   kit_seal new
   selfupdate --force --source "$NEW"
   assert_status 0 '--force finishes despite a conflict'
   assert_files_equal "$NEW/dist/files/Makefile" "$SHOP/Makefile" '--force writes the new version'
   local backup
   backup="$(find "$SHOP/.kit/backup" -type f -name Makefile 2>/dev/null | head -n 1)"
-  assert_file_matches "$backup" '^# sửa tay$' '--force keeps the local version under .kit/backup/<time>/'
+  assert_file_matches "$backup" '^# manual edit$' '--force keeps the local version under .kit/backup/<time>/'
   assert_file_line "$SHOP/.kit/version" 'v1.1.0' '--force records the new version'
   assert_contains '.kit/backup/' 'the backup location is reported'
 }
 
 test_rerun_after_interruption() {
   setup_pair
-  printf '# bản mới\n' >> "$NEW/dist/files/Makefile"
-  printf '# bản mới\n' >> "$NEW/dist/files/compose.yaml"
+  printf '# new version\n' >> "$NEW/dist/files/Makefile"
+  printf '# new version\n' >> "$NEW/dist/files/compose.yaml"
   printf '#!/usr/bin/env bash\n' > "$NEW/dist/files/bin/newcmd"
   chmod 755 "$NEW/dist/files/bin/newcmd"
   rm -f "$NEW/dist/files/bin/stopall"
   kit_seal new
   run_cmd "$KIT_REPO_ROOT/install.sh" new "$SANDBOX/fresh" --source "$NEW"
-  # mv giả: cho qua 2 lần rồi hỏng, như bị ngắt giữa chừng.
-  # Chuỗi cho shell con hoặc fixture, giữ nguyên ký tự $.
+  # fake mv: let two calls through, then fail, as if interrupted midway.
+  # String for the child shell or a fixture, keep the $ characters as they are.
   # shellcheck disable=SC2016
   printf '#!/usr/bin/env bash\nn=$(cat "%s/mv.count" 2>/dev/null || echo 0)\nn=$((n + 1)); echo "$n" > "%s/mv.count"\n[[ "$n" -le 2 ]] || exit 1\nPATH="%s" exec mv "$@"\n' "$KIT_LOG_DIR" "$KIT_LOG_DIR" "$ORIG_PATH" > "$SANDBOX/.fakebin/mv"
   chmod 755 "$SANDBOX/.fakebin/mv"
@@ -181,7 +181,7 @@ test_downgrade() {
   setup_pair
   local before
   before="$(shop_digest)"
-  printf '# bản mới\n' >> "$NEW/dist/files/Makefile"
+  printf '# new version\n' >> "$NEW/dist/files/Makefile"
   printf '#!/usr/bin/env bash\n' > "$NEW/dist/files/bin/newcmd"
   chmod 755 "$NEW/dist/files/bin/newcmd"
   rm -f "$NEW/dist/files/bin/stopall"
@@ -210,19 +210,19 @@ test_compose_reminder() {
 
 test_changelog_between_versions() {
   setup_pair
-  printf '# Changelog\n\n## v1.2.0\n- ba\n\n## v1.1.0\n- hai\n\n## v1.0.0\n- một\n' > "$NEW/CHANGELOG.md"
+  printf '# Changelog\n\n## v1.2.0\n- three\n\n## v1.1.0\n- two\n\n## v1.0.0\n- one\n' > "$NEW/CHANGELOG.md"
   printf '# v1.1.0\n' >> "$NEW/dist/files/Makefile"
   kit_seal new
   selfupdate --source "$NEW"
   assert_status 0 'update with a changelog succeeds'
-  assert_contains '- hai' 'the changelog shows the target version'
-  assert_not_contains '- một' 'the changelog omits the installed version and older'
-  assert_not_contains '- ba' 'the changelog omits versions newer than the target'
+  assert_contains '- two' 'the changelog shows the target version'
+  assert_not_contains '- one' 'the changelog omits the installed version and older'
+  assert_not_contains '- three' 'the changelog omits versions newer than the target'
 }
 
 test_profile_missing_keys() {
   setup_pair
-  printf '\n# Cổng mới.\n# KIT_NEW_PORT=4242\nKIT_NEW_REQUIRED=\n' >> "$NEW/dist/templates/project/profile.env"
+  printf '\n# New port.\n# KIT_NEW_PORT=4242\nKIT_NEW_REQUIRED=\n' >> "$NEW/dist/templates/project/profile.env"
   printf '# v1.1.0\n' >> "$NEW/dist/files/Makefile"
   kit_seal new
   local before
@@ -270,9 +270,9 @@ test_argument_errors() {
 
 test_tampered_source_is_rejected() {
   setup_pair
-  printf '# bản mới\n' >> "$NEW/dist/files/Makefile"
+  printf '# new version\n' >> "$NEW/dist/files/Makefile"
   kit_seal new
-  printf '# lén\n' >> "$NEW/dist/files/Makefile"
+  printf '# sneaky\n' >> "$NEW/dist/files/Makefile"
   local before
   before="$(tree_digest "$SHOP")"
   selfupdate --source "$NEW"

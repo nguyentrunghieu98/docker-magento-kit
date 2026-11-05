@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Test cho tools/release: sinh manifest, phát hiện manifest lệch, phát hành tag.
+# Tests for tools/release: generate the manifest, detect manifest drift, release a tag.
 #
 # Usage:  bash tests/test-release.sh
 set -Eeuo pipefail
 # shellcheck source=tests/lib.sh
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)/lib.sh"
 
-# Một bản sao nhỏ của repo gói trong sandbox, là repo git có một commit.
+# A small copy of the package repo in the sandbox, as a git repo with one commit.
 release_repo_new() {
   sandbox_new
   REPO="$SANDBOX/repo"

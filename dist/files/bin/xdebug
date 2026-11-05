@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# bin/xdebug - bật hoặc tắt Xdebug bằng cách đổi biến thể image phpfpm.
+# bin/xdebug - turn Xdebug on or off by changing the phpfpm image variant.
 #
-#   bin/xdebug        in trạng thái hiện tại
-#   bin/xdebug on     ghi KIT_PHP_VARIANT=-xdebug vào .kit/runtime.env, recreate phpfpm
-#   bin/xdebug off    ghi KIT_PHP_VARIANT rỗng vào .kit/runtime.env, recreate phpfpm
+#   bin/xdebug        print the current state
+#   bin/xdebug on     write KIT_PHP_VARIANT=-xdebug to .kit/runtime.env, recreate phpfpm
+#   bin/xdebug off    write an empty KIT_PHP_VARIANT to .kit/runtime.env, recreate phpfpm
 #
-# Không sửa cấu hình PHP trong container và không đụng nginx.
+# It does not edit the PHP configuration in the container and does not touch nginx.
 set -Eeuo pipefail
 
 KIT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
@@ -21,7 +21,7 @@ current_state() {
   if [[ "$KIT_PHP_VARIANT" == '-xdebug' ]]; then printf 'on'; else printf 'off'; fi
 }
 
-# Ghi KIT_PHP_VARIANT vào runtime.env, giữ nguyên các khóa khác.
+# Write KIT_PHP_VARIANT to runtime.env, keep the other keys as they are.
 write_variant() {
   local value="$1" tmp
   mkdir -p "$KIT_ROOT/.kit"
@@ -34,7 +34,7 @@ write_variant() {
 }
 
 usage() {
-  printf 'Cách dùng: bin/xdebug [on|off]\n' >&2
+  printf 'Usage: bin/xdebug [on|off]\n' >&2
 }
 
 case "${1:-}" in

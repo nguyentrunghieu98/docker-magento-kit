@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# Test S1 cho bin/docker-compose: tham số được ghép đúng theo engine DB, override,
-# overlay worktree và trạng thái runtime. Docker giả ghi tham số và môi trường.
+# S1 test for bin/docker-compose: arguments are assembled correctly per DB engine, override,
+# worktree overlay and runtime state. The fake Docker records arguments and environment.
 #
 # Usage:  bash tests/test-docker-compose.sh
 set -Eeuo pipefail
 # shellcheck source=tests/lib.sh
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)/lib.sh"
 
-# Docker giả ghi tham số vào docker.log và biến liên quan vào docker.env.
+# The fake Docker records arguments in docker.log and related variables in docker.env.
 install_recording_docker() {
   cat > "$SANDBOX/.fakebin/docker" <<'STUB'
 #!/usr/bin/env bash
@@ -19,7 +19,7 @@ STUB
   chmod 755 "$SANDBOX/.fakebin/docker"
 }
 
-# uname giả để kiểm cả nhánh Linux lẫn Darwin.
+# Fake uname to test both the Linux and Darwin branches.
 install_uname() {
   printf '#!/usr/bin/env bash\necho %s\n' "$1" > "$SANDBOX/.fakebin/uname"
   chmod 755 "$SANDBOX/.fakebin/uname"
@@ -38,7 +38,7 @@ compose() {
   run_in "$SANDBOX" "$ROOT/bin/docker-compose" "$@"
 }
 
-# Danh sách file -f theo thứ tự, trên một dòng.
+# The list of -f files in order, on one line.
 files_called() {
   grep -Eo ' -f [^ ]+' "$KIT_LOG_DIR/docker.log" | sed 's/^ -f //' | tr '\n' ' ' | sed 's/ $//'
 }

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Test S1 cho `install.sh new`: Docker root sandbox cài bằng --source, không cần mạng.
+# S1 test for `install.sh new`: a sandbox Docker root installed from --source, no network.
 #
 # Usage:  bash tests/test-installer-new.sh
 set -Eeuo pipefail
@@ -8,7 +8,7 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)/lib.sh"
 
 DIST="$KIT_REPO_ROOT/dist"
 
-# Danh sách đường dẫn mà `new` phải tạo, đã sắp xếp.
+# The paths `new` must create, sorted.
 expected_files() {
   {
     awk '{print $3}' "$DIST/manifest"
@@ -21,7 +21,7 @@ actual_files() {
   (cd "$1" && find . -type f | sed 's|^\./||' | LC_ALL=C sort)
 }
 
-# Giả `curl` cho đường tải: ghi URL, trả danh sách tag và tarball dựng sẵn.
+# Fake `curl` for the download path: log the URL, serve a prepared tag list and tarball.
 fake_curl_install() {
   cat > "$SANDBOX/.fakebin/curl" <<'STUB'
 #!/usr/bin/env bash
@@ -219,7 +219,7 @@ test_new_downloads_pinned_version() {
 
 test_new_needs_no_git() {
   sandbox_new
-  # PATH gồm .fakebin và một thư mục chỉ có các công cụ cần thiết, không có git.
+  # PATH holds .fakebin and a directory with only the required tools, no git.
   local tool bin="$SANDBOX/.nogit"
   mkdir -p "$bin"
   for tool in bash cat cp chmod cut dirname find grep mkdir mktemp mv pwd rm sed sha256sum sort tail tar tr awk readlink env; do

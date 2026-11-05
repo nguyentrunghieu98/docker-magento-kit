@@ -1,14 +1,14 @@
 #!/usr/bin/env node
 
 /**
- * Theo dõi app/code và app/design của worktree đang phục vụ (đích của .active-src,
- * hoặc src/ khi chưa có .active-src) để bắt thay đổi JS, LESS, template.
- * Khi có thay đổi: xoá symlink trong pub/static và var/view_preprocessed
- * để lần F5 tiếp theo Magento tự link và biên dịch lại.
- * Khi `bin/wt use` đổi worktree, watcher tự chuyển sang worktree mới.
+ * Watch app/code and app/design of the active worktree (target of .active-src,
+ * or src/ when there is no .active-src) to catch JS, LESS and template changes.
+ * On a change: clear the symlinks in pub/static and var/view_preprocessed
+ * so the next F5 lets Magento re-link and recompile by itself.
+ * When `bin/wt use` switches worktree, the watcher moves to the new one.
  *
- *   bin/watch                 chạy watcher
- *   bin/watch --print-target  in thư mục sẽ được theo dõi rồi thoát
+ *   bin/watch                 run the watcher
+ *   bin/watch --print-target  print the directory that will be watched then exit
  */
 
 const fs = require('fs');
@@ -17,7 +17,7 @@ const { execSync } = require('child_process');
 
 const ROOT = path.resolve(__dirname, '..');
 
-// Đích của .active-src nếu nó là symlink còn sống, nếu không thì src/.
+// Target of .active-src if it is a live symlink, otherwise src/.
 function resolveSrc() {
     const link = path.join(ROOT, '.active-src');
     try {
@@ -74,7 +74,7 @@ function flush() {
                 if (m) {
                     const [, vendor, module_, area, jsPath] = m;
                     const moduleId = `${vendor}_${module_}`;
-                    // Theme nào cũng được: pub/static/<area>/<Vendor>/<theme>/<locale>/...
+                    // Any theme is fine: pub/static/<area>/<Vendor>/<theme>/<locale>/...
                     const staticArea = area === 'adminhtml' ? 'adminhtml/*/*' : 'frontend/*/*';
                     const pattern = `pub/static/${staticArea}/*/${moduleId}/${jsPath}`;
                     execSync(`cd "${ROOT}" && bin/cli sh -c 'rm -f ${pattern} 2>/dev/null; true'`, { stdio: 'pipe' });
@@ -110,23 +110,23 @@ function watchDir(dir) {
         clearStatic(path.join(dir, filename));
     }));
 
-    console.log(`[watch] đang theo dõi ${path.relative(ROOT, dir)} trong ${SRC}`);
+    console.log(`[watch] watching ${path.relative(ROOT, dir)} in ${SRC}`);
 }
 
 function startWatching() {
     watchDirs().forEach(watchDir);
 }
 
-// Theo dõi .active-src: đổi worktree bằng `bin/wt use` thì chuyển watcher theo.
+// Watch .active-src: switching the worktree with `bin/wt use` moves the watcher too.
 setInterval(() => {
     const next = resolveSrc();
     if (next !== SRC) {
-        console.log(`[watch] worktree đang phục vụ đổi: ${SRC} -> ${next}`);
+        console.log(`[watch] active worktree changed: ${SRC} -> ${next}`);
         stopWatching();
         SRC = next;
         startWatching();
     }
 }, 2000);
 
-console.log('[watch] Watcher cho môi trường dev Magento đã chạy. Sửa JS/LESS rồi F5 để thấy thay đổi.\n');
+console.log('[watch] Watcher for the Magento dev environment is running. Edit JS/LESS then F5 to see the changes.\n');
 startWatching();

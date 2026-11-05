@@ -12,16 +12,16 @@ comma:= ,
 
 .DEFAULT_GOAL:=help
 
-# Lệnh riêng của dự án nằm ở project/bin/. Trùng tên với lệnh của gói (bin/<tên>)
-# hoặc với target `help` thì make dừng, để không che mất lệnh của gói.
+# Project-specific commands live in project/bin/. A name that clashes with a package command (bin/<name>)
+# or with the `help` target stops make, so it cannot shadow a package command.
 project_cmds := $(notdir $(wildcard project/bin/*))
 project_clashes := $(strip $(foreach c,$(project_cmds),$(if $(or $(wildcard bin/$(c)),$(filter help,$(c))),$(c))))
 ifneq ($(project_clashes),)
-$(error project/bin/$(firstword $(project_clashes)) trùng tên với lệnh của gói, hãy đổi tên lệnh dự án (các tên trùng: $(project_clashes)))
+$(error project/bin/$(firstword $(project_clashes)) clashes with a package command, rename the project command (clashing names: $(project_clashes)))
 endif
 
-# Target không khai báo: chạy project/bin/<target> nếu có, không thì no-op.
-# Chỉ target đầu tiên là lệnh, phần còn lại là tham số của nó.
+# Undeclared target: run project/bin/<target> when present, otherwise a no-op.
+# Only the first target is the command; the rest are its arguments.
 %:
 	@if [ "$@" = "$(firstword $(MAKECMDGOALS))" ] && [ -f "project/bin/$@" ]; then ./project/bin/$@ $(call args); fi
 

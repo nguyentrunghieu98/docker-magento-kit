@@ -1,32 +1,32 @@
-# Hướng dẫn cho agent: {{KIT_PROJECT_NAME}}
+# Agent instructions: {{KIT_PROJECT_NAME}}
 
-Magento 2 chạy trong Docker. Docker root là `{{KIT_ROOT}}`, code Magento ở `src/`, site `https://{{KIT_DOMAIN}}`.
+Magento 2 runs in Docker. The Docker root is `{{KIT_ROOT}}`, Magento code is in `src/`, the site is `https://{{KIT_DOMAIN}}`.
 
-## Ranh giới cứng
+## Hard boundary
 
-- Dừng ở nhánh `<type>/<slug>` đã push lên `{{KIT_GIT_REMOTE}}` cùng merge request đích `{{KIT_GIT_TARGET_BRANCH}}`. Người tự deploy.
-- `{{KIT_GIT_BASE_BRANCH}}` và `{{KIT_GIT_TARGET_BRANCH}}` chỉ đọc: không push, không force-push vào hai nhánh này.
-- Không deploy, không SSH vào production, không ghi dữ liệu production.
-- `vendor/`, `generated/`, `pub/static/` là output: sửa nguồn rồi để lệnh sinh lại.
-- Bí mật (`auth.json`, `env/*.env`, token) ở lại ngoài commit.
+- Stop at a `<type>/<slug>` branch pushed to `{{KIT_GIT_REMOTE}}` with a merge request targeting `{{KIT_GIT_TARGET_BRANCH}}`. A human deploys.
+- `{{KIT_GIT_BASE_BRANCH}}` and `{{KIT_GIT_TARGET_BRANCH}}` are read-only: no push, no force-push into these two branches.
+- Do not deploy, do not SSH into production, do not write production data.
+- `vendor/`, `generated/`, `pub/static/` are output: edit the source and let the commands regenerate them.
+- Secrets (`auth.json`, `env/*.env`, tokens) stay out of commits.
 
-## Chạy lệnh
+## Running commands
 
-Host không có PHP. Mọi lệnh PHP và Magento chạy qua Docker root:
+The host has no PHP. Every PHP and Magento command runs through the Docker root:
 
 ```bash
-cd {{KIT_ROOT}} && bin/cli <lệnh>        # hoặc bin/magento, bin/composer
+cd {{KIT_ROOT}} && bin/cli <command>        # or bin/magento, bin/composer
 ```
 
-Container đang tắt thì chạy `bin/start`. Git chạy trong checkout của nhánh, `src/` hoặc `.worktrees/<dir>`.
+If the containers are stopped, run `bin/start`. Git runs in the branch checkout, `src/` or `.worktrees/<dir>`.
 
 ## Worktree
 
-- Tạo bằng `bin/wt create <type>/<slug>`, worktree nằm ở `.worktrees/<dir>`, nhánh tách từ `{{KIT_GIT_REMOTE}}/{{KIT_GIT_BASE_BRANCH}}`.
-- Một stack, một DB, một `vendor/` cho mọi worktree. Chạy `bin/wt status` trước lệnh Magento, đổi bằng `bin/wt use <tên>`.
-- `bin/wt` là đường duy nhất tạo và đổi worktree: `git worktree add` và sửa tay `.active-src` làm stack mount sai chỗ.
+- Create one with `bin/wt create <type>/<slug>`, the worktree lives in `.worktrees/<dir>`, the branch is cut from `{{KIT_GIT_REMOTE}}/{{KIT_GIT_BASE_BRANCH}}`.
+- One stack, one DB, one `vendor/` for every worktree. Run `bin/wt status` before a Magento command, switch with `bin/wt use <name>`.
+- `bin/wt` is the only way to create and switch worktrees: `git worktree add` and hand-editing `.active-src` make the stack mount the wrong place.
 
-## Tri thức
+## Knowledge
 
-- Skill `magento-workflow`: nạp khi chạy gate, commit, tạo MR hoặc đổi worktree.
-- `project/agent/references/`: đọc khi việc chạm module, deploy hand-off hoặc quy ước riêng của dự án.
+- Skill `magento-workflow`: load it when running a gate, committing, creating an MR or switching worktree.
+- `project/agent/references/`: read when the work touches modules, the deploy hand-off or project-specific conventions.

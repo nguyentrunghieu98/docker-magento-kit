@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# bin/deploy [locale...] - quy trình deploy chuẩn của Magento.
-# Không có tham số thì dùng KIT_STATIC_LOCALES trong project/profile.env.
-# Có tham số thì các locale đó thay cho KIT_STATIC_LOCALES. Số job theo nproc.
+# bin/deploy [locale...] - the standard Magento deploy flow.
+# Without arguments it uses KIT_STATIC_LOCALES from project/profile.env.
+# With arguments those locales replace KIT_STATIC_LOCALES. Job count follows nproc.
 set -o errexit
 
 KIT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"

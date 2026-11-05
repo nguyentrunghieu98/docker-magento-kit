@@ -1,36 +1,36 @@
-# Git và merge request
+# Git and merge request
 
-Nhánh gốc và nhánh đích của dự án là chỉ đọc. Ranh giới cứng nằm trong `AGENTS.md`.
+The project's base branch and target branch are read-only. The hard boundary lives in `AGENTS.md`.
 
-## Nhánh
+## Branch
 
-- Tách từ `<remote>/<base branch>`, tên `<type>/<slug>`.
-- `type` là `feat`, `fix`, `hotfix`, `refactor`, `perf` hoặc `chore`. `slug` là chữ thường, số và gạch ngang, 3 đến 50 ký tự.
-- Tạo bằng `bin/wt create <type>/<slug>`, không dùng `git worktree add` tay.
+- Cut from `<remote>/<base branch>`, named `<type>/<slug>`.
+- `type` is `feat`, `fix`, `hotfix`, `refactor`, `perf` or `chore`. `slug` is lowercase letters, digits and hyphens, 3 to 50 characters.
+- Create it with `bin/wt create <type>/<slug>`, never a manual `git worktree add`.
 
 ## Commit
 
-- Dòng đầu theo mẫu `<type>: <câu mệnh lệnh, tối đa 72 ký tự>`.
-- Thân commit nêu module đã chạm, lệnh gate đã chạy, ghi chú deploy và cách lùi.
-- Stage đường dẫn cụ thể, không `git add -A`. Không commit bí mật, file sinh tự động, `vendor/`, `generated/`, `pub/static/`.
+- First line follows the pattern `<type>: <imperative sentence, at most 72 characters>`.
+- The commit body states the modules touched, the gate commands run, deploy notes and how to roll back.
+- Stage specific paths, never `git add -A`. Do not commit secrets, generated files, `vendor/`, `generated/`, `pub/static/`.
 
-## Push và merge request
+## Push and merge request
 
-- Push nhánh rồi mở MR vào `<target branch>`:
+- Push the branch, then open an MR into `<target branch>`:
 
 ```bash
 git push -u <remote> <branch> \
   -o merge_request.create \
   -o merge_request.target=<target branch> \
-  -o merge_request.title='<tiêu đề>'
+  -o merge_request.title='<title>'
 ```
 
-- Push option bị từ chối thì push thường, in URL MR rồi dừng.
-- MR đích là nhánh đích của dự án, không phải nhánh gốc.
-- Người deploy là người dùng. Agent dừng ở nhánh đã push và MR.
+- If the push option is rejected, push normally, print the MR URL and stop.
+- The MR targets the project's target branch, not the base branch.
+- The user is the one who deploys. The agent stops at the pushed branch and the MR.
 
 ## Review
 
-- Soát diff từ merge base với nhánh đích, không soát cả repo.
-- Bốn nhóm cần soát: lỗi logic, ranh giới bị vượt, thiếu gate cho bề mặt đã sửa, thay đổi ngoài phạm vi.
-- Phát hiện xếp theo mức Critical, High, Medium, Low. Không có Critical hoặc High thì mới đề nghị merge.
+- Review the diff from the merge base with the target branch, not the whole repo.
+- Four groups to check: logic errors, crossed boundaries, missing gates for the surface that changed, changes outside the scope.
+- Findings are ordered Critical, High, Medium, Low. Only suggest a merge when there is no Critical or High finding.

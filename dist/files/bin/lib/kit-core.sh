@@ -1,21 +1,21 @@
 #!/usr/bin/env bash
-# bin/lib/kit-core.sh - lõi lập kế hoạch cài và cập nhật, dùng chung cho
-# `install.sh new` và `bin/self-update`. Chỉ để `source`, không chạy trực tiếp.
+# bin/lib/kit-core.sh - install and update planning core, shared by
+# `install.sh new` and `bin/self-update`. Source-only, never run directly.
 #
-# Người gọi phải định nghĩa hàm `die <thông báo>` (in lỗi và thoát) trước khi gọi.
+# The caller must define a `die <message>` function (print an error and exit) before calling.
 #
-# Kế hoạch là một file, mỗi dòng `<hành động><TAB><quyền><TAB><đường dẫn>`.
-# Thuật toán ba chiều chạy trên hợp của manifest cũ và manifest mới:
-#   write      chưa có ở local: ghi
-#   overwrite  local trùng checksum lúc cài: ghi đè bản mới
-#   skip       local đã trùng bản mới: bỏ qua
-#   keep       bản mới không đổi file này nhưng local đã sửa: giữ bản sửa tay
-#   conflict   local khác cả bản lúc cài lẫn bản mới: xung đột cập nhật
-#   remove     bản mới bỏ file, local chưa sửa: xoá
-#   orphan     bản mới bỏ file, local đã sửa: giữ và cảnh báo
-#   template   template chưa có ở local: tạo (không bao giờ ghi đè)
-# Chỉ dùng công cụ cơ bản (awk, cp, mv, chmod, find, sort, sha256sum hoặc
-# shasum), không cần git.
+# The plan is a file, one line per entry `<action><TAB><mode><TAB><path>`.
+# The three-way algorithm runs over the union of the old and the new manifest:
+#   write      not present locally: write it
+#   overwrite  local matches the install-time checksum: overwrite with the new version
+#   skip       local already matches the new version: skip
+#   keep       the new version leaves this file unchanged but local was edited: keep the hand edit
+#   conflict   local differs from both the install-time and the new version: update conflict
+#   remove     the new version drops the file, local was not edited: remove it
+#   orphan     the new version drops the file, local was edited: keep it and warn
+#   template   template not present locally: create it (never overwrite)
+# Basic tools only (awk, cp, mv, chmod, find, sort, sha256sum or
+# shasum), no git needed.
 
 sha256_of() {
   if command -v sha256sum >/dev/null 2>&1; then
@@ -25,7 +25,7 @@ sha256_of() {
   fi
 }
 
-# Đặt quyền theo số trong manifest, chỉ phân biệt thực thi hay không.
+# Set the mode from the number in the manifest, only distinguishing executable or not.
 apply_mode() {
   case "$1" in
     755) chmod 755 "$2" ;;
@@ -33,22 +33,22 @@ apply_mode() {
   esac
 }
 
-# kit_verify_source <kit_root>: mọi file trong dist/files phải khớp dist/manifest.
+# kit_verify_source <kit_root>: every file in dist/files must match dist/manifest.
 verify_source() {
   local root="$1" sum mode path bad=0
   while read -r sum mode path; do
     [[ -n "$path" ]] || continue
     if [[ ! -f "$root/dist/files/$path" ]] || [[ "$(sha256_of "$root/dist/files/$path")" != "$sum" ]]; then
-      printf 'nguồn lệch manifest: %s\n' "$path" >&2
+      printf 'source differs from the manifest: %s\n' "$path" >&2
       bad=1
     fi
   done < "$root/dist/manifest"
-  [[ "$bad" -eq 0 ]] || die 'nguồn không khớp manifest, dừng trước khi ghi'
+  [[ "$bad" -eq 0 ]] || die 'source does not match the manifest, stopping before any write'
 }
 
 # --------------------------------------------------------------------------
-# Tải nguồn (dùng cho bin/self-update; install.sh có bản riêng vì chạy trước
-# khi lõi này tồn tại)
+# Fetching the source (used by bin/self-update; install.sh has its own copy
+# because it runs before this core exists)
 # --------------------------------------------------------------------------
 
 kit_find_root() {
@@ -68,7 +68,7 @@ kit_find_root() {
 
 kit_latest_tag() {
   local repo="$1" json
-  json="$(curl -fsSL "https://api.github.com/repos/$repo/tags?per_page=100")" || die 'không lấy được danh sách tag'
+  json="$(curl -fsSL "https://api.github.com/repos/$repo/tags?per_page=100")" || die 'cannot fetch the tag list'
   printf '%s\n' "$json" \
     | grep -Eo '"name"[[:space:]]*:[[:space:]]*"v[0-9]+\.[0-9]+\.[0-9]+"' \
     | grep -Eo 'v[0-9]+\.[0-9]+\.[0-9]+' \
@@ -76,7 +76,7 @@ kit_latest_tag() {
     | tail -n 1
 }
 
-# kit_fetch_source <work_dir> <source|''> <version|''> <repo>: đặt KIT_ROOT và VERSION.
+# kit_fetch_source <work_dir> <source|''> <version|''> <repo>: sets KIT_ROOT and VERSION.
 kit_fetch_source() {
   local work="$1" source="$2" version="$3" repo="$4"
   if [[ -n "$source" ]]; then
@@ -84,38 +84,38 @@ kit_fetch_source() {
       KIT_ROOT="$(cd "$source" && pwd -P)"
     elif [[ -f "$source" ]]; then
       mkdir -p "$work/src"
-      tar -xzf "$source" -C "$work/src" || die "không giải nén được $source"
-      KIT_ROOT="$(kit_find_root "$work/src")" || die "tarball không chứa dist/: $source"
+      tar -xzf "$source" -C "$work/src" || die "cannot extract $source"
+      KIT_ROOT="$(kit_find_root "$work/src")" || die "tarball does not contain dist/: $source"
     else
-      die "--source không tồn tại: $source"
+      die "--source does not exist: $source"
     fi
-    [[ -d "$KIT_ROOT/dist/files" && -f "$KIT_ROOT/dist/manifest" ]] || die "nguồn thiếu dist/files hoặc dist/manifest: $source"
+    [[ -d "$KIT_ROOT/dist/files" && -f "$KIT_ROOT/dist/manifest" ]] || die "source is missing dist/files or dist/manifest: $source"
     if [[ -z "$version" ]]; then
       version="$(tr -d '[:space:]' < "$KIT_ROOT/dist/version" 2>/dev/null || true)"
       [[ -n "$version" ]] || version='dev'
     fi
   else
-    command -v curl >/dev/null 2>&1 || die 'cần curl'
+    command -v curl >/dev/null 2>&1 || die 'curl is required'
     if [[ -z "$version" ]]; then
       version="$(kit_latest_tag "$repo")"
-      [[ -n "$version" ]] || die 'repo chưa có tag phát hành nào'
+      [[ -n "$version" ]] || die 'the repo has no release tag yet'
     fi
     curl -fsSL "https://github.com/$repo/archive/refs/tags/$version.tar.gz" -o "$work/kit.tar.gz" \
-      || die "không tải được tag $version"
+      || die "cannot download tag $version"
     mkdir -p "$work/src"
-    tar -xzf "$work/kit.tar.gz" -C "$work/src" || die "không giải nén được tag $version"
-    KIT_ROOT="$(kit_find_root "$work/src")" || die "tarball $version không chứa dist/"
-    [[ -f "$KIT_ROOT/dist/manifest" ]] || die "tag $version thiếu dist/manifest"
+    tar -xzf "$work/kit.tar.gz" -C "$work/src" || die "cannot extract tag $version"
+    KIT_ROOT="$(kit_find_root "$work/src")" || die "tarball $version does not contain dist/"
+    [[ -f "$KIT_ROOT/dist/manifest" ]] || die "tag $version is missing dist/manifest"
   fi
   export VERSION="$version"
 }
 
 # --------------------------------------------------------------------------
-# Lập kế hoạch
+# Planning
 # --------------------------------------------------------------------------
 
-# kit_plan <root> <manifest_cũ|''> <manifest_mới> <thư_mục_template|''>
-# In kế hoạch ra stdout, sắp xếp theo đường dẫn. Không ghi gì vào <root>.
+# kit_plan <root> <old_manifest|''> <new_manifest> <template_dir|''>
+# Print the plan to stdout, sorted by path. Writes nothing into <root>.
 kit_plan() {
   local root="$1" oldm="$2" newm="$3" tpl="$4" empty='' path old new mode local_sum rel action
   if [[ -z "$oldm" ]]; then
@@ -129,7 +129,7 @@ kit_plan() {
       if [[ -f "$root/$path" && ! -L "$root/$path" ]]; then
         local_sum="$(sha256_of "$root/$path")"
       else
-        local_sum='!' # symlink hoặc thư mục: không khớp checksum nào
+        local_sum='!' # symlink or directory: matches no checksum
       fi
     fi
     if [[ "$new" != '-' ]]; then
@@ -177,7 +177,7 @@ kit_plan() {
   return 0
 }
 
-# kit_plan_count <plan> <hành_động>
+# kit_plan_count <plan> <action>
 kit_plan_count() {
   local n
   n="$(awk -F'\t' -v a="$2" '$1 == a { n++ } END { print n + 0 }' "$1")"
@@ -185,11 +185,11 @@ kit_plan_count() {
 }
 
 # --------------------------------------------------------------------------
-# Áp dụng
+# Apply
 # --------------------------------------------------------------------------
 
-# Ghi qua file tạm rồi mv để thay nguyên inode. Script đang chạy (bin/self-update
-# ghi đè chính nó) nhờ vậy vẫn đọc được bản cũ cho tới khi kết thúc.
+# Write through a temp file then mv so the whole inode is replaced. The running
+# script (bin/self-update overwrites itself) can still read the old copy until it exits.
 _kit_install_file() {
   local src="$1" dest="$2" mode="$3" tmp
   mkdir -p "$(dirname "$dest")"
@@ -200,9 +200,9 @@ _kit_install_file() {
   fi
 }
 
-# kit_apply <root> <plan> <thư_mục_files> <thư_mục_template|''> <force 0|1> <thư_mục_backup>
-# Áp dụng kế hoạch. conflict chỉ được ghi khi force=1 và được chuyển vào
-# <thư_mục_backup>/<đường dẫn> trước. Không ghi manifest và version.
+# kit_apply <root> <plan> <files_dir> <template_dir|''> <force 0|1> <backup_dir>
+# Apply the plan. A conflict is only written when force=1, and is moved into
+# <backup_dir>/<path> first. Does not write the manifest or the version.
 kit_apply() {
   local root="$1" plan="$2" files="$3" tpl="$4" force="$5" backup="$6" action mode path dir
   while IFS=$'\t' read -r action mode path; do
@@ -210,7 +210,7 @@ kit_apply() {
       write | overwrite) _kit_install_file "$files/$path" "$root/$path" "$mode" ;;
       template) _kit_install_file "$tpl/$path" "$root/$path" "$mode" ;;
       conflict)
-        [[ "$force" -eq 1 ]] || die "xung đột chưa được xử lý: $path"
+        [[ "$force" -eq 1 ]] || die "unhandled conflict: $path"
         mkdir -p "$backup/$(dirname "$path")"
         mv "$root/$path" "$backup/$path"
         _kit_install_file "$files/$path" "$root/$path" "$mode"
@@ -226,8 +226,8 @@ kit_apply() {
   done < "$plan"
 }
 
-# kit_write_state <root> <manifest_mới> <version>: ghi sau cùng. Manifest trước,
-# version sau, mỗi file qua mv nên không bao giờ nửa vời.
+# kit_write_state <root> <new_manifest> <version>: written last. Manifest first,
+# version after, each file through mv so it is never half done.
 kit_write_state() {
   local root="$1" manifest="$2" version="$3"
   mkdir -p "$root/.kit"
@@ -238,11 +238,11 @@ kit_write_state() {
 }
 
 # --------------------------------------------------------------------------
-# Thông tin phụ cho bin/self-update
+# Extra information for bin/self-update
 # --------------------------------------------------------------------------
 
-# kit_changelog <CHANGELOG.md> <từ> <đến>: in các mục `## vX.Y.Z` nằm giữa hai
-# phiên bản. Nâng cấp in (từ, đến], hạ cấp in (đến, từ].
+# kit_changelog <CHANGELOG.md> <from> <to>: print the `## vX.Y.Z` entries between two
+# versions. An upgrade prints (from, to], a downgrade prints (to, from].
 kit_changelog() {
   [[ -f "$1" ]] || return 0
   awk -v from="$2" -v to="$3" '
@@ -261,8 +261,8 @@ kit_changelog() {
   ' "$1"
 }
 
-# kit_profile_missing <profile> <template>: in `KHÓA=mặc_định` cho khóa có trong
-# template mới mà file profile chưa có (kể cả dạng comment). Không ghi gì.
+# kit_profile_missing <profile> <template>: print `KEY=default` for every key in the
+# new template that the profile file does not have yet (commented-out included). Writes nothing.
 kit_profile_missing() {
   local profile="$1" template="$2"
   [[ -f "$template" ]] || return 0
@@ -279,7 +279,7 @@ kit_profile_missing() {
       v = substr($0, RSTART + RLENGTH)
       if (!(k in have) && !(k in done)) {
         done[k] = 1
-        if (v == "") print k "=\t(bắt buộc, không có mặc định)"
+        if (v == "") print k "=\t(required, no default)"
         else print k "=" v
       }
     }
@@ -287,27 +287,27 @@ kit_profile_missing() {
 }
 
 # --------------------------------------------------------------------------
-# Nhận dự án (install.sh adopt)
+# Adopting a project (install.sh adopt)
 # --------------------------------------------------------------------------
 
-# kit_conflict_hint <đường_dẫn>: chỗ mở rộng nên dùng để chuyển phần tùy biến
-# khỏi file của gói bị xung đột.
+# kit_conflict_hint <path>: the extension point to use when moving customizations
+# out of a conflicting package file.
 kit_conflict_hint() {
   case "$1" in
     compose*.yaml | compose*.yml)
-      printf 'đổi cấu trúc (service, mount, build, command) -> compose.override.yaml; phiên bản, cổng, image -> project/profile.env; biến cho container -> env/*.env'
+      printf 'structure changes (services, mounts, build, command) -> compose.override.yaml; versions, ports, images -> project/profile.env; container variables -> env/*.env'
       ;;
-    bin/*) printf 'lệnh riêng của dự án -> project/bin/<lệnh>; giá trị cấu hình -> project/profile.env; biến cho container -> env/*.env' ;;
-    Makefile) printf 'target riêng -> project/bin/<lệnh>' ;;
-    conf/* | template/* | .vscode/*) printf 'mount bản riêng bằng compose.override.yaml, hoặc đưa thay đổi lên repo của gói' ;;
-    *) printf 'giá trị -> project/profile.env; cấu trúc Compose -> compose.override.yaml; biến container -> env/*.env; lệnh riêng -> project/bin/' ;;
+    bin/*) printf 'project-specific commands -> project/bin/<command>; configuration values -> project/profile.env; container variables -> env/*.env' ;;
+    Makefile) printf 'project-specific targets -> project/bin/<command>' ;;
+    conf/* | template/* | .vscode/*) printf 'mount your own copy through compose.override.yaml, or send the change to the package repo' ;;
+    *) printf 'values -> project/profile.env; Compose structure -> compose.override.yaml; container variables -> env/*.env; project commands -> project/bin/' ;;
   esac
 }
 
-# kit_stray_files <root> <manifest> <thư_mục_template>: in các file lạ (không
-# thuộc gói, không phải template, không phải trạng thái của gói). Thư mục mà mọi
-# file bên trong đều lạ được gộp thành `thư_mục/`. Không bao giờ đi vào src/,
-# .worktrees/, .git/, .kit/ hay project/.
+# kit_stray_files <root> <manifest> <template_dir>: print stray files (not owned
+# by the package, not a template, not package state). A directory whose files are
+# all stray is collapsed into `dir/`. Never walks into src/, .worktrees/, .git/,
+# .kit/ or project/.
 kit_stray_files() {
   local root="$1" manifest="$2" tpl="$3" known
   known="$(mktemp)"
@@ -340,8 +340,8 @@ kit_stray_files() {
   rm -f "$known"
 }
 
-# Đọc compose.yaml, chỉ các dòng không bị comment. In `service<TAB>loại<TAB>giá trị`
-# với loại là image, port (host:container), javaopts (giá trị *_JAVA_OPTS).
+# Read compose.yaml, uncommented lines only. Print `service<TAB>kind<TAB>value`
+# where kind is image, port (host:container) or javaopts (the value of *_JAVA_OPTS).
 _kit_compose_facts() {
   awk '
     function clean(s) { sub(/^[ \t]+/, "", s); sub(/[ \t]+#.*$/, "", s); gsub(/["\047]/, "", s); sub(/[ \t]+$/, "", s); return s }
@@ -362,8 +362,8 @@ _kit_compose_facts() {
   ' "$1"
 }
 
-# kit_adopt_guess <root>: in `KHÓA=giá trị` đoán được chỉ từ file (không đọc DB,
-# không gọi Docker). Khóa nào không chắc thì bỏ, không đoán bừa.
+# kit_adopt_guess <root>: print `KEY=value` guessed from files alone (no DB read,
+# no Docker call). Drop any key that is uncertain, never guess blindly.
 kit_adopt_guess() {
   local root="$1" name facts remote branches base='' target='' v ver image spec svc cport key
   name="$(basename "$root" | tr '[:upper:]' '[:lower:]' | sed -e 's/[^a-z0-9_-]//g' -e 's/^[_-]*//')"
@@ -419,8 +419,8 @@ kit_adopt_guess() {
   return 0
 }
 
-# kit_profile_apply_guesses <profile> <file_đoán>: điền các khóa đoán vào file
-# profile vừa tạo từ template. Mỗi dòng đoán kèm `# adopt đoán, kiểm tra lại`.
+# kit_profile_apply_guesses <profile> <guesses_file>: fill the guessed keys into the
+# profile file just created from the template. Each guessed line gets `# adopt guess, verify it`.
 kit_profile_apply_guesses() {
   local profile="$1" guesses="$2" tmp
   tmp="$profile.kit-tmp.$$"
@@ -431,12 +431,12 @@ kit_profile_apply_guesses() {
         k = substr($0, RSTART, RLENGTH); sub(/^#? ?/, "", k); sub(/=$/, "", k)
         if ((k in g) && !(k in done)) {
           done[k] = 1
-          print k "=" g[k] "  # adopt đoán, kiểm tra lại"
+          print k "=" g[k] "  # adopt guess, verify it"
           next
         }
       }
       print
     }
-    END { for (j = 1; j <= n; j++) if (!(order[j] in done)) print order[j] "=" g[order[j]] "  # adopt đoán, kiểm tra lại" }
+    END { for (j = 1; j <= n; j++) if (!(order[j] in done)) print order[j] "=" g[order[j]] "  # adopt guess, verify it" }
   ' "$guesses" "$profile" > "$tmp" && mv -f "$tmp" "$profile"
 }

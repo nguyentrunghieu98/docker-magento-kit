@@ -7,9 +7,9 @@ cd "$KIT_ROOT"
 source "$KIT_ROOT/bin/lib/profile.sh"
 kit_profile_load "$KIT_ROOT" || exit 1
 
-# Domain lấy từ tham số, không có thì lấy KIT_DOMAIN trong project/profile.env.
+# The domain comes from the argument; otherwise use KIT_DOMAIN from project/profile.env.
 if [[ -z "${1:-}" ]]; then
-  kit_profile_require KIT_DOMAIN || { echo "Hoặc truyền domain làm tham số (ex. magento.test)" >&2; exit 1; }
+  kit_profile_require KIT_DOMAIN || { echo "Or pass the domain as an argument (e.g. magento.test)" >&2; exit 1; }
 fi
 if [ -f "../env/magento.env" ]; then
     source "../env/magento.env"

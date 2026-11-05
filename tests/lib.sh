@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# tests/lib.sh - thư viện test bash dùng chung, không phụ thuộc gì ngoài bash,
-# coreutils và git. Source file này từ mỗi tests/test-*.sh.
+# tests/lib.sh - shared bash test library, depending on nothing but bash,
+# coreutils and git. Source this file from each tests/test-*.sh.
 #
-# Seam S1 (Docker root sandbox): sandbox_new tạo thư mục tạm, đặt `docker` giả lên
-# đầu PATH để ghi từng lệnh vào log, và (khi cần) dựng bare remote git có
-# `master` và `staging`. Test chỉ nhìn hành vi ngoài: file sinh ra, mã thoát,
-# stdout và các lệnh docker đã gọi.
+# Seam S1 (Docker root sandbox): sandbox_new creates a temp directory, puts a fake
+# `docker` at the front of PATH to log each command, and (when needed) sets up a
+# bare git remote with `master` and `staging`. Tests only look at outside behavior:
+# files created, exit codes, stdout and the docker commands called.
 #
-# Nâng từ tests/test-magento-wt.sh của dự án Format (hàm assert_*, sandbox mktemp,
-# docker giả).
+# Lifted from tests/test-magento-wt.sh of the Format project (assert_* functions,
+# mktemp sandbox, fake docker).
 
 KIT_REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 ORIG_PATH="$PATH"
@@ -22,7 +22,7 @@ OUTPUT=''
 STATUS=0
 
 # --------------------------------------------------------------------------
-# Báo cáo
+# Reporting
 # --------------------------------------------------------------------------
 
 _snippet() {
@@ -48,9 +48,9 @@ fail_() {
   return 0
 }
 
-# In tổng kết và trả mã thoát: 0 khi mọi kiểm tra đạt, 1 nếu không.
+# Print the summary and return an exit code: 0 when every check passes, 1 otherwise.
 finish() {
-  printf '1..%d\n# %d đạt, %d lỗi\n' "$CHECKS" "$PASSED" "$FAILED"
+  printf '1..%d\n# %d passed, %d failed\n' "$CHECKS" "$PASSED" "$FAILED"
   [[ "$FAILED" -eq 0 ]]
 }
 
@@ -210,7 +210,7 @@ assert_file_line_count() {
   assert_equals "$want" "$got" "$desc"
 }
 
-# Khẳng định lệnh docker (qua docker giả) đã được gọi / chưa được gọi.
+# Assert a docker command (through the fake docker) was called / was not called.
 assert_docker_called() {
   local needle="$1" desc="$2"
   assert_file_matches "$KIT_LOG_DIR/docker.log" "$(printf '%s' "$needle" | sed 's/[][\.*^$/]/\\&/g')" "$desc"
@@ -241,9 +241,9 @@ cleanup_sandboxes() {
 }
 trap cleanup_sandboxes EXIT
 
-# Thư mục tạm có .fakebin/docker giả và .logs/. Đặt SANDBOX, KIT_LOG_DIR, PATH.
-# Docker giả ghi `docker <tham số>` vào .logs/docker.log, không bao giờ gọi
-# daemon. `docker info` thoát 0 khi tồn tại $KIT_DOCKER_ONLINE.
+# Temp directory with a fake .fakebin/docker and .logs/. Sets SANDBOX, KIT_LOG_DIR, PATH.
+# The fake docker writes `docker <args>` to .logs/docker.log and never talks to the
+# daemon. `docker info` exits 0 while $KIT_DOCKER_ONLINE exists.
 sandbox_new() {
   SANDBOX="$(mktemp -d "${TMPDIR:-/tmp}/kit-test.XXXXXX")"
   SANDBOX="$(realpath "$SANDBOX")"
@@ -256,7 +256,7 @@ sandbox_new() {
 
   cat > "$SANDBOX/.fakebin/docker" <<'STUB'
 #!/usr/bin/env bash
-# Docker giả: ghi lại lệnh, không bao giờ nói chuyện với daemon.
+# Fake docker: log the command, never talk to the daemon.
 printf 'docker %s\n' "$*" >> "${KIT_LOG_DIR:?}/docker.log"
 if [[ "${1:-}" == 'info' ]]; then
   [[ -e "${KIT_DOCKER_ONLINE:?}" ]] && exit 0
@@ -271,8 +271,8 @@ set_docker_online() { : > "$KIT_DOCKER_ONLINE"; }
 set_docker_offline() { rm -f "$KIT_DOCKER_ONLINE"; }
 reset_calls() { rm -f "$KIT_LOG_DIR"/*.log; }
 
-# Dựng bare remote git trong sandbox với nhánh master và staging, mỗi nhánh một
-# commit. Đặt BARE_REMOTE. Dùng git thật.
+# Set up a bare git remote in the sandbox with master and staging branches, one
+# commit each. Sets BARE_REMOTE. Uses real git.
 git_remote_new() {
   BARE_REMOTE="$SANDBOX/remote.git"
   local seed="$SANDBOX/.seed"
@@ -290,7 +290,7 @@ git_remote_new() {
   rm -rf "$seed"
 }
 
-# Chạy lệnh, gom stdout+stderr vào OUTPUT và mã thoát vào STATUS.
+# Run a command, collect stdout+stderr into OUTPUT and the exit status into STATUS.
 run_cmd() {
   if OUTPUT="$("$@" 2>&1)"; then
     STATUS=0
@@ -300,28 +300,28 @@ run_cmd() {
   return 0
 }
 
-# Như run_cmd nhưng chạy trong thư mục <dir>.
+# Like run_cmd but runs in the <dir> directory.
 run_in() {
   local dir="$1"
   shift
-  # Chuỗi cho shell con hoặc fixture, giữ nguyên ký tự $.
+  # String for the child shell or a fixture, keep the $ characters as they are.
   # shellcheck disable=SC2016
   run_cmd bash -c 'cd "$1" && shift && exec "$@"' _ "$dir" "$@"
 }
 
-# Chạy install.sh của repo này.
+# Run this repo's install.sh.
 run_installer() {
   run_cmd "$KIT_REPO_ROOT/install.sh" "$@"
 }
 
-# Cài một Docker root mới vào $SANDBOX/<tên> bằng nguồn là chính checkout gói.
+# Install a new Docker root into $SANDBOX/<name> using the package checkout as the source.
 kit_new() {
   local name="${1:-root}"
   shift || true
   run_installer new "$SANDBOX/$name" --source "$KIT_REPO_ROOT" "$@"
 }
 
-# Dấu vân tay của một cây thư mục: đường dẫn, quyền thực thi và sha256 nội dung.
+# Fingerprint of a directory tree: path, executable bit and content sha256.
 tree_digest() {
   local dir="$1" rel
   (
@@ -333,7 +333,7 @@ tree_digest() {
   )
 }
 
-# Chạy mọi hàm test_* đã định nghĩa, theo thứ tự bảng chữ cái.
+# Run every defined test_* function, in alphabetical order.
 run_tests() {
   local fn
   while IFS= read -r fn; do

@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
-# Test thư viện đọc file profile (bin/lib/profile.sh) qua Docker root sandbox.
+# Test the profile file library (bin/lib/profile.sh) through a sandbox Docker root.
 #
 # Usage:  bash tests/test-profile-lib.sh
 set -Eeuo pipefail
 # shellcheck source=tests/lib.sh
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)/lib.sh"
 
-# Nạp profile trong một shell sạch rồi in các biến yêu cầu, mỗi biến một dòng.
-# Biến KIT_* của môi trường ngoài được cố tình đặt để chứng minh chúng bị bỏ qua.
+# Load the profile in a clean shell then print the requested variables, one per line.
+# An ambient KIT_* variable is set on purpose to prove it is ignored.
 load_and_print() {
   local root="$1"
   shift
-  # Chuỗi cho shell con hoặc fixture, giữ nguyên ký tự $.
+  # String for a subshell or a fixture, left with its literal $ character.
   # shellcheck disable=SC2016
   run_cmd env KIT_PHP_VERSION=ambient bash -c '
     source "$1/bin/lib/profile.sh"
@@ -38,7 +38,7 @@ test_template_has_every_key() {
     KIT_RABBITMQ_MANAGEMENT_PORT KIT_STATIC_LOCALES KIT_COMPOSE_PROFILES; do
     assert_file_matches "$ROOT/project/profile.env" "^#? ?$key=" "template lists $key"
   done
-  # Khóa bắt buộc để trống và không bị comment, khóa có mặc định ghi dạng comment.
+  # Required keys are empty and uncommented, keys with a default are written as comments.
   assert_file_line "$ROOT/project/profile.env" 'KIT_DOMAIN=' 'required key KIT_DOMAIN is present and empty'
   assert_file_line "$ROOT/project/profile.env" 'KIT_GIT_REMOTE=' 'required key KIT_GIT_REMOTE is present and empty'
   assert_file_line "$ROOT/project/profile.env" '# KIT_PHP_VERSION=8.3' 'default-valued key is a commented line'
@@ -112,7 +112,7 @@ test_project_name_defaults_to_directory() {
 test_rejects_bad_syntax() {
   new_root
   local bad
-  # Chuỗi cho shell con hoặc fixture, giữ nguyên ký tự $.
+  # String for a subshell or a fixture, left with its literal $ character.
   # shellcheck disable=SC2016
   for bad in 'KIT_DOMAIN="shop.test"' "KIT_DOMAIN='shop.test'" 'KIT_DOMAIN=${HOST}' 'KIT_DOMAIN=$(id)' \
     'KIT_DOMAIN =shop.test' 'KIT_DOMAIN= shop.test' 'DOMAIN=shop.test' 'KIT_domain=x' 'just text'; do
@@ -133,7 +133,7 @@ test_does_not_execute_values() {
 test_require_reports_missing_key() {
   new_root
   write_profile 'KIT_DOMAIN=shop.test'
-  # Chuỗi cho shell con hoặc fixture, giữ nguyên ký tự $.
+  # String for a subshell or a fixture, left with its literal $ character.
   # shellcheck disable=SC2016
   run_cmd bash -c '
     source "$1/bin/lib/profile.sh"; kit_profile_load "$2"
@@ -144,7 +144,7 @@ test_require_reports_missing_key() {
   assert_contains 'KIT_GIT_BASE_BRANCH' 'names every missing key'
   assert_not_contains 'KIT_DOMAIN' 'does not name a key that is set'
   assert_contains 'project/profile.env' 'points at the profile file'
-  # Chuỗi cho shell con hoặc fixture, giữ nguyên ký tự $.
+  # String for a subshell or a fixture, left with its literal $ character.
   # shellcheck disable=SC2016
   run_cmd bash -c '
     source "$1/bin/lib/profile.sh"; kit_profile_load "$2"
@@ -165,7 +165,7 @@ test_runtime_env_overrides_profile() {
 test_unknown_keys_are_reported() {
   new_root
   write_profile 'KIT_TYPO_KEY=1' 'KIT_MODEL_CLAUDE_DEEP=opus'
-  # Chuỗi cho shell con hoặc fixture, giữ nguyên ký tự $.
+  # String for a subshell or a fixture, left with its literal $ character.
   # shellcheck disable=SC2016
   run_cmd bash -c '
     source "$1/bin/lib/profile.sh"; kit_profile_load "$2"; printf "unknown=[%s]\n" "$KIT_PROFILE_UNKNOWN"

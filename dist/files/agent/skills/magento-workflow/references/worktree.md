@@ -1,20 +1,20 @@
 # Worktree
 
-Một stack, một DB, một `vendor/`, một `node_modules/` và một `pub/media/` cho mọi worktree. Chỉ một checkout được phục vụ tại một thời điểm.
+One stack, one DB, one `vendor/`, one `node_modules/` and one `pub/media/` for every worktree. Only one checkout is served at a time.
 
-## Lệnh
+## Commands
 
-- `bin/wt create <type>/<slug>`: tạo worktree ở `.worktrees/<dir>`, nhánh tách từ `<remote>/<base branch>`.
-- `bin/wt create --review-mr <id> [--ref <branch>]`: tạo worktree detached `review-mr<id>` để soát MR.
-- `bin/wt use <tên|đường dẫn>`: đổi checkout đang phục vụ. Chỉ nhận checkout chính và đường dẫn trong `.worktrees/`.
-- `bin/wt status`: cho biết checkout đang phục vụ. Chạy trước mọi lệnh Magento.
-- `bin/wt prepare`: chép file lõi mà checkout còn thiếu và cài kit agent.
-- `bin/wt adopt <đường dẫn>`: dời worktree tạo sai chỗ về vị trí chuẩn rồi `prepare`.
-- `bin/wt prune --dry-run`: in danh sách sẽ xoá. `bin/wt prune` xoá đúng danh sách đó, giữ branch.
-- `bin/wt doctor`: so mount thật của phpfpm với đích `.active-src`, cảnh báo `base_url` lệch `KIT_DOMAIN` và khóa profile sai.
+- `bin/wt create <type>/<slug>`: create a worktree in `.worktrees/<dir>`, branch cut from `<remote>/<base branch>`.
+- `bin/wt create --review-mr <id> [--ref <branch>]`: create a detached `review-mr<id>` worktree to review an MR.
+- `bin/wt use <name|path>`: switch the served checkout. It only accepts the main checkout and paths under `.worktrees/`.
+- `bin/wt status`: show the served checkout. Run it before every Magento command.
+- `bin/wt prepare`: copy the core files the checkout still lacks and install the agent kit.
+- `bin/wt adopt <path>`: move a misplaced worktree to the standard location, then `prepare`.
+- `bin/wt prune --dry-run`: print the list that will be deleted. `bin/wt prune` deletes exactly that list and keeps the branch.
+- `bin/wt doctor`: compare the real phpfpm mount with the `.active-src` target, warn when `base_url` differs from `KIT_DOMAIN` and when a profile key is wrong.
 
-## Quy tắc
+## Rules
 
-- `bin/wt` là đường duy nhất tạo và đổi worktree. Sửa tay `.active-src` hoặc `git worktree add` làm stack mount sai chỗ.
-- `prune` giữ lại worktree còn thay đổi, worktree đang phục vụ và worktree chưa merge. Duyệt `--dry-run` trước khi xoá.
-- Worktree dùng chung DB nên thay đổi schema ảnh hưởng mọi worktree.
+- `bin/wt` is the only way to create and switch worktrees. Hand-editing `.active-src` or `git worktree add` makes the stack mount the wrong place.
+- `prune` keeps worktrees with changes, the served worktree and unmerged worktrees. Review `--dry-run` before deleting.
+- Worktrees share a DB, so a schema change affects every worktree.

@@ -1,97 +1,97 @@
 # magento-docker-kit
 
-Gói đóng sẵn môi trường Docker cho dự án Magento 2, kèm công cụ worktree và kit agent, cài và cập nhật vào nhiều dự án.
+A package that ships a Docker environment for a Magento 2 project, together with worktree tools and an agent kit, installed and updated into multiple projects.
 
-## Gói và dự án
+## Package and project
 
-**Gói**:
-Bản phân phối `magento-docker-kit` ở một phiên bản semver cụ thể, gồm mọi file do gói quản lý.
-_Avoid_: kit (khi nói về toàn bộ gói), template, fork
+**Package**:
+The `magento-docker-kit` distribution at a specific semver version, including every file managed by the package.
+_Avoid_: kit (when talking about the whole package), template, fork
 
-**Dự án**:
-Một cài đặt cụ thể của gói cho một codebase Magento, ví dụ Format.
+**Project**:
+A specific installation of the package for one Magento codebase, for example Format.
 _Avoid_: project instance, site
 
 **Docker root**:
-Thư mục gốc của một dự án, nơi gói được cài và chứa `src/`.
-_Avoid_: project root (dễ nhầm với gốc Magento)
+The root directory of a project, where the package is installed and which holds `src/`.
+_Avoid_: project root (easily confused with the Magento root)
 
-**File của gói**:
-File do gói sở hữu, được ghi đè khi cập nhật và được theo dõi bằng checksum.
+**Package file**:
+A file owned by the package, overwritten on update and tracked by checksum.
 _Avoid_: core file, base file
 
-**File của dự án**:
-File dự án sở hữu, chỉ được tạo một lần từ template và không bao giờ bị gói ghi đè.
+**Project file**:
+A file owned by the project, created only once from a template and never overwritten by the package.
 _Avoid_: local file, override
 
-**Profile dự án**:
-Tập gồm file profile, các file env, file override của Compose và thư mục `project/`, mô tả mọi thứ riêng của một dự án.
+**Project profile**:
+The set of the profile file, the env files, the Compose override file and the `project/` directory, describing everything specific to a project.
 _Avoid_: config, settings
 
-**File profile**:
-File duy nhất chứa giá trị mà gói đọc để tự cấu hình cho một dự án, như domain, remote và nhánh Git. Nó không chứa bí mật.
+**Profile file**:
+The single file holding the values the package reads to configure itself for a project, such as the domain, the remote and the Git branches. It holds no secrets.
 _Avoid_: config, `.env`, settings
 
-**Trạng thái runtime**:
-Giá trị cục bộ do lệnh của gói ghi ra trong lúc chạy, ví dụ Xdebug đang bật hay tắt. Nó không được commit và không thuộc profile dự án.
+**Runtime state**:
+Local values written by package commands while they run, for example whether Xdebug is on or off. It is not committed and is not part of the project profile.
 _Avoid_: state, cache
 
-**Chỗ mở rộng**:
-Nơi hợp lệ để dự án thay đổi hành vi của gói mà không sửa file của gói.
+**Extension point**:
+A valid place for a project to change package behavior without editing package files.
 _Avoid_: hook, patch, customization
 
-**Xung đột cập nhật**:
-Một file của gói đã bị sửa tay ở dự án và khác với cả bản lúc cài lẫn bản mới.
+**Update conflict**:
+A package file that was hand-edited in the project and differs from both the installed version and the new version.
 _Avoid_: merge conflict, diff
 
-**Nhận dự án**:
-Đưa một Docker root đang chạy sẵn về dạng do gói quản lý mà không dựng lại dữ liệu.
-_Avoid_: migrate, import, cài đè
+**Adopt project**:
+Bring an already running Docker root under package management without rebuilding data.
+_Avoid_: migrate, import, overwrite
 
 **Cutover**:
-Thời điểm stack của dự án được dừng và khởi động lại trên bộ file mới. Trước thời điểm này, lùi lại không làm ngừng dịch vụ.
-_Avoid_: deploy, go-live, chuyển đổi
+The moment the project stack is stopped and started again on the new file set. Before this moment, rolling back does not stop service.
+_Avoid_: deploy, go-live, switch-over
 
-**File lạ**:
-File ở Docker root không thuộc gói, không phải template và không phải trạng thái của gói.
-_Avoid_: untracked file, rác
+**Stray file**:
+A file at the Docker root that belongs neither to the package, nor to a template, nor to package state.
+_Avoid_: untracked file, junk
 
 ## Worktree
 
-**Checkout chính**:
-Repo Magento tại `src/` của Docker root.
+**Main checkout**:
+The Magento repo at `src/` of the Docker root.
 _Avoid_: main worktree, master checkout
 
 **Worktree**:
-Một checkout phụ của repo Magento, nằm ở vị trí chuẩn trong Docker root.
+A secondary checkout of the Magento repo, located at the canonical location in the Docker root.
 _Avoid_: lane, slot, sandbox
 
-**Worktree đang phục vụ**:
-Checkout duy nhất mà stack đang mount và phục vụ tại một thời điểm.
+**Active worktree**:
+The single checkout that the stack mounts and serves at a given time.
 _Avoid_: active lane, current slot
 
-**Nhận worktree**:
-Đưa một worktree tạo sai chỗ về vị trí chuẩn để nó được phép phục vụ.
+**Adopt worktree**:
+Bring a misplaced worktree to the canonical location so that it is allowed to serve.
 _Avoid_: import, migrate
 
 ## Agent
 
 **Harness**:
-Công cụ chạy agent đọc kit agent của dự án, ví dụ Claude Code, Codex hay DSH.
+The tool running the agent that reads the project agent kit, for example Claude Code, Codex or DSH.
 _Avoid_: tool, IDE, client
 
-**Kit agent**:
-Phần của gói cung cấp tri thức Magento cho agent: cách chạy lệnh, gate verify, quy ước Git, ranh giới cứng. Nó không định nghĩa quy trình làm việc.
+**Agent kit**:
+The part of the package that provides Magento knowledge to the agent: how to run commands, verification gates, Git conventions and hard boundaries. It does not define the workflow.
 _Avoid_: workflow kit, agent workflow
 
-**Bộ skill quy trình**:
-Bộ skill cài vào harness, quyết định trình tự làm việc như grill, spec, ticket, implement và review. Nó nằm ngoài gói.
-_Avoid_: stage, S0 đến S6
+**Process skill set**:
+The set of skills installed into the harness that decides the work sequence, such as grill, spec, ticket, implement and review. It lives outside the package.
+_Avoid_: stage, S0 to S6
 
 **Role**:
-Một subagent có tên, được định nghĩa bằng ranh giới quyền của nó, không bằng model chạy nó.
+A named subagent, defined by its permission boundaries rather than by the model that runs it.
 _Avoid_: worker, teammate, persona
 
-**Hạng model**:
-Mức năng lực trừu tượng mà một role cần (`fast`, `default`, `deep`), được quy đổi sang model thật theo từng harness.
+**Model tier**:
+The abstract capability level a role needs (`fast`, `default`, `deep`), mapped to a real model per harness.
 _Avoid_: tier, model name

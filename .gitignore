@@ -1,5 +1,5 @@
-# Tracker nội bộ của dự án: map, spec, ticket, research. Không đưa lên repo.
+# Project-internal tracker: map, spec, ticket, research. Do not commit it to the repo.
 .scratch/
 
-# Hệ điều hành
+# Operating system
 .DS_Store

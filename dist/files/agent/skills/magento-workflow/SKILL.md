@@ -1,16 +1,16 @@
 ---
 name: magento-workflow
-description: Tri thức chạy lệnh Magento trong Docker, ma trận gate, quy ước Git và merge request, quy tắc worktree của gói. Nạp khi chạy kiểm tra cho một thay đổi, khi commit hoặc tạo MR, hoặc khi đổi worktree.
+description: Knowledge for running Magento commands in Docker, the gate matrix, Git and merge request conventions, and the package's worktree rules. Load when running checks for a change, when committing or creating an MR, or when switching worktree.
 ---
 
 # magento-workflow
 
-Đây là tri thức về cách làm, không phải trình tự làm việc. Trình tự do bộ skill quy trình của harness quyết định.
+This is knowledge about how to work, not a work sequence. The harness's process skill set decides the sequence.
 
-`AGENTS.md` ở Docker root là nguồn của ranh giới cứng, cách chạy lệnh và quy tắc worktree. Skill này chỉ mở rộng ba phần:
+`AGENTS.md` in the Docker root is the source of the hard boundary, how to run commands and the worktree rules. This skill only expands three parts:
 
-- `references/gates.md` — ma trận gate theo bề mặt thay đổi, mẫu bằng chứng.
-- `references/git-mr.md` — nhánh, commit, push, merge request, quy ước review.
-- `references/worktree.md` — `bin/wt` và thay đổi checkout mà stack đang phục vụ.
+- `references/gates.md` — gate matrix per change surface, evidence template.
+- `references/git-mr.md` — branch, commit, push, merge request, review conventions.
+- `references/worktree.md` — `bin/wt` and changing the checkout the stack serves.
 
-Mọi lệnh PHP và Magento chạy qua Docker root bằng `bin/cli` hoặc `bin/magento`. Container tắt thì chạy `bin/start`.
+Every PHP and Magento command runs through the Docker root with `bin/cli` or `bin/magento`. If the containers are stopped, run `bin/start`.

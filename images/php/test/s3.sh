@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Seam S3: kiểm một image PHP sau khi build.
-# Dùng: images/php/test/s3.sh <image> <main|xdebug>
+# Seam S3: verify a PHP image after build.
+# Usage: images/php/test/s3.sh <image> <main|xdebug>
 set -euo pipefail
 
-image=${1:?thiếu image}
-variant=${2:?thiếu biến thể main|xdebug}
+image=${1:?missing image}
+variant=${2:?missing main|xdebug variant}
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 fail=0
 
@@ -13,20 +13,20 @@ expected=$(LC_ALL=C sort "$here/extensions.txt")
 
 actual=$(docker run --rm "$image" php -m | sed -n '/PHP Modules/,/^$/p' | grep -v -e '^\[' -e '^$' | LC_ALL=C sort)
 if [ "$actual" != "$expected" ]; then
-  echo "LỖI: php -m không khớp danh sách đã chốt ($image)" >&2
+  echo "ERROR: php -m does not match the pinned list ($image)" >&2
   diff <(echo "$expected") <(echo "$actual") >&2 || true
   fail=1
 else
-  echo "OK: php -m khớp ($image)"
+  echo "OK: php -m matches ($image)"
 fi
 
 has_xdebug=$(docker run --rm "$image" php -r 'echo extension_loaded("xdebug") ? "yes" : "no";')
 if [ "$variant" = xdebug ] && [ "$has_xdebug" != yes ]; then
-  echo "LỖI: biến thể xdebug thiếu Xdebug" >&2; fail=1
+  echo "ERROR: the xdebug variant is missing Xdebug" >&2; fail=1
 elif [ "$variant" = main ] && [ "$has_xdebug" != no ]; then
-  echo "LỖI: image chính có Xdebug" >&2; fail=1
+  echo "ERROR: the main image has Xdebug" >&2; fail=1
 else
-  echo "OK: Xdebug đúng biến thể $variant"
+  echo "OK: Xdebug matches variant $variant"
 fi
 
 cid=$(docker run -d "$image")
@@ -37,9 +37,9 @@ for _ in $(seq 1 20); do
   sleep 1
 done
 if [ "$ok" = 1 ]; then
-  echo "OK: php-fpm tạo /sock/docker.sock"
+  echo "OK: php-fpm created /sock/docker.sock"
 else
-  echo "LỖI: không thấy /sock/docker.sock" >&2; docker logs "$cid" >&2 || true; fail=1
+  echo "ERROR: /sock/docker.sock not found" >&2; docker logs "$cid" >&2 || true; fail=1
 fi
 
 exit "$fail"
