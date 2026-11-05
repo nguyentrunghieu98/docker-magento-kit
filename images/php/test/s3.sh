@@ -8,10 +8,10 @@ variant=${2:?thiếu biến thể main|xdebug}
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 fail=0
 
-expected=$(cat "$here/extensions.txt")
-[ "$variant" = xdebug ] && expected=$(printf '%s\nxdebug\n' "$expected" | sort)
+expected=$(LC_ALL=C sort "$here/extensions.txt")
+[ "$variant" = xdebug ] && expected=$(printf '%s\nxdebug\n' "$expected" | LC_ALL=C sort)
 
-actual=$(docker run --rm "$image" php -m | sed -n '/PHP Modules/,/^$/p' | grep -v -e '^\[' -e '^$' | sort)
+actual=$(docker run --rm "$image" php -m | sed -n '/PHP Modules/,/^$/p' | grep -v -e '^\[' -e '^$' | LC_ALL=C sort)
 if [ "$actual" != "$expected" ]; then
   echo "LỖI: php -m không khớp danh sách đã chốt ($image)" >&2
   diff <(echo "$expected") <(echo "$actual") >&2 || true

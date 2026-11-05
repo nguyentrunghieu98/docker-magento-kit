@@ -1,8 +1,15 @@
+Core
+PDO
+Phar
+Reflection
+SPL
+SPX
+SimpleXML
+Zend OPcache
 bcmath
 blackfire
 bz2
 calendar
-Core
 ctype
 curl
 date
@@ -25,22 +32,16 @@ mysqlnd
 openssl
 pcntl
 pcre
-PDO
 pdo_mysql
 pdo_sqlite
-Phar
 posix
 random
 readline
 redis
-Reflection
 session
-SimpleXML
 soap
 sockets
 sodium
-SPL
-SPX
 sqlite3
 ssh2
 standard
@@ -52,6 +53,5 @@ xml
 xmlreader
 xmlwriter
 xsl
-Zend OPcache
 zip
 zlib
