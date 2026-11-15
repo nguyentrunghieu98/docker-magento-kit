@@ -30,3 +30,10 @@ If the containers are stopped, run `bin/start`. Git runs in the branch checkout,
 
 - Skill `magento-workflow`: load it when running a gate, committing, creating an MR or switching worktree.
 - `project/agent/references/`: read when the work touches modules, the deploy hand-off or project-specific conventions.
+
+## Working rules
+
+- `AGENTS.md`, `CLAUDE.md`, `.claude/agents/`, `.omp/agents/`, `.claude/skills/` and `.agents/skills/` are generated from `agent/` and `project/agent/` by `bin/agent install`. Edit the source, then run it again.
+- Turn the request into observable behaviors and write the test first (`magento-workflow` → `references/testing.md`). Evidence belongs to the last revision: run the checks again after any later edit, and never claim a check passed without running it.
+- A child agent does not inherit the conversation: pass the Docker root, the target worktree, the requirements, the test commands and the rules. Run agents in parallel only when they edit different files and share no mutable resource.
+- Keep output short: `git status --short`, `git diff --stat`, `phpcs --report=summary`, `phpunit ... | tail -30`; read large files by line range.

@@ -12,6 +12,7 @@ The project's base branch and target branch are read-only. The hard boundary liv
 
 - First line follows the pattern `<type>: <imperative sentence, at most 72 characters>`.
 - The commit body states the modules touched, the gate commands run, deploy notes and how to roll back.
+- Never force-push, rewrite shared history or revert someone else's changes.
 - Stage specific paths, never `git add -A`. Do not commit secrets, generated files, `vendor/`, `generated/`, `pub/static/`.
 
 ## Push and merge request
