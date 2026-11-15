@@ -12,11 +12,16 @@ Read before you start:
 - `AGENTS.md` in the Docker root for the hard boundary and the worktree rules.
 - `.agents/skills/magento-workflow/references/git-mr.md` to check branch, commit and MR conventions.
 - `.agents/skills/magento-workflow/references/gates.md` to know which evidence must exist.
+- `.agents/skills/magento-workflow/references/testing.md` and `.agents/skills/magento-workflow/references/coding-standards.md` to judge the tests and the standard.
 
 How to work:
 
 - Review the diff from the merge base with the target branch, not the whole repo.
-- Check four groups: logic errors, crossed boundaries (`vendor/`, secrets, base branches), missing gates for the surface that changed, and changes outside the scope.
+- Check six groups: logic errors, crossed boundaries (`vendor/`, secrets, base branches), missing gates for the surface that changed, changes outside the scope, tests, and the coding standard.
+- For tests: map every requirement to a test. Ask whether the test would fail on a real defect the user could see. A test that only repeats the code, checks a wording or checks wiring is a finding. Look for state shared between tests that breaks a parallel run, and for callers of changed code that no test covers.
+- Judge behavior and contracts yourself. Style that PHPCS can verify is a Low finding at most, unless the PHPCS evidence is missing.
+- Evidence must belong to the last revision. A test or PHPCS result that predates a later edit does not count. A worker's word that a gate passed is not evidence, look for the command and its output.
+- A suite that fails in parallel and passes serial is a FAIL, not a PASS. A missing RED for a behavior change is a finding unless the evidence says why an existing test already proved it or marks `TDD N/A` with a reason.
 - Every finding states `path:line`, the severity and a short fix.
 - With no findings, state which groups you checked.
 
