@@ -266,3 +266,14 @@ bash tests/run-all.sh
 ```
 
 Test cần bash, git và jq. Docker được thay bằng bản giả ghi lại lời gọi.
+
+## Tham khảo từ
+
+Lớp quy trình lấy hình mẫu từ [hcf](https://github.com/markshust/hcf) của
+[Mark Shust](https://github.com/markshust), giấy phép MIT, Copyright (c) Devtomic LLC: kế hoạch chia
+thành task với requirement là tên test, phê bình trước khi viết code, và mỗi bước một role. Hai hook
+theo hai mẫu nhỏ của hcf, một dòng nhắc lúc mở phiên và một lần chặn ở PreToolUse. Kit giữ phần nhỏ
+và bỏ lại tám hook point, cơ chế enrollment theo agent và schema plan của hcf.
+
+Stack Docker là [markshust/docker-magento](https://github.com/markshust/docker-magento), cũng của
+Mark Shust. Hai file overlay là bản sửa từ đó, như `NOTICE` ghi.

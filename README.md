@@ -269,3 +269,14 @@ bash tests/run-all.sh
 ```
 
 The tests need bash, git and jq. Docker is replaced by a fake that logs its calls.
+
+## Inspired by
+
+The workflow layer takes its shape from [hcf](https://github.com/markshust/hcf) by
+[Mark Shust](https://github.com/markshust), MIT, Copyright (c) Devtomic LLC: plans as tasks whose
+requirements are test names, a critique before any code, and one role per step. Two of the hooks
+follow small patterns from hcf, a session-start heads-up and a PreToolUse deny. This kit keeps the
+small part and leaves hcf's eight hook points, its agent enrollment and its plan schema behind.
+
+The Docker stack is [markshust/docker-magento](https://github.com/markshust/docker-magento), also by
+Mark Shust. Two overlay files are modified copies of it, as `NOTICE` says.
