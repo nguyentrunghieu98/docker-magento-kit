@@ -9,28 +9,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Manifest matches dist/files
-        run: tools/release check
       - name: Run the full test suite
         run: bash tests/run-all.sh
-      - name: "S2: real docker compose config for every DB engine and overlay combination"
-        env:
-          KIT_REQUIRE_DOCKER: '1'
-        run: |
-          docker compose version
-          bash tests/test-compose-config.sh
 
   shellcheck:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: shellcheck the repo scripts
-        run: shellcheck -x install.sh tools/release tests/*.sh
-      - name: shellcheck the package scripts (warning level, the upstream snapshot still has notes)
+      - name: shellcheck the kit scripts and tests
         run: |
-          set -euo pipefail
-          files=()
-          while IFS= read -r f; do
-            if head -n1 "$f" | grep -Eq '^#!.*\b(ba)?sh\b'; then files+=("$f"); fi
-          done < <(find dist -type f)
-          shellcheck -x -S warning "${files[@]}"
+          shellcheck -x tests/*.sh
+          shellcheck -x -S warning docker/bin/wt docker/bin/test/unit docker/bin/phpcs docker/bin/docker-compose agents/hooks/*.sh

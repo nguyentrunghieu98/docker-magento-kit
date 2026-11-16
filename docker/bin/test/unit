@@ -1,0 +1,150 @@
+#!/usr/bin/env bash
+# bin/test/unit - the one unit test runner.
+#
+#   bin/test/unit --info [--wt <name>]
+#   bin/test/unit [--wt <name>] [--parallel] <path> [--filter <regex>]
+#   bin/test/unit --xdebug|--coverage <path>
+#
+# The command comes from the project's composer scripts test:unit / test:unit:parallel,
+# else vendor/bin/phpunit / vendor/bin/paratest with dev/tests/unit/phpunit.xml.dist.
+# --parallel without ParaTest stops with exit 2, it never falls back to serial.
+#
+# Without --wt the tests run in the shared phpfpm on the active checkout (for a human).
+# With --wt (agents always use it) every run goes through `bin/wt run`: a throwaway
+# container with its own tmpfs for generated/, var/ and dev/tests/unit/tmp, so parallel
+# runs never share those directories and no lock is needed.
+#
+# Exit codes: 2 usage or prerequisite, otherwise the exit code of the tests.
+set -Eeuo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
+SRC="$ROOT/src"
+PHPUNIT_CONFIG='dev/tests/unit/phpunit.xml.dist'
+PROCESSES="${TEST_PROCESSES:-2}"
+
+die() { printf 'ERROR: %s\n' "$*" >&2; exit 2; }
+
+usage() {
+  cat <<'USAGE'
+Usage: bin/test/unit --info [--wt <name>]
+       bin/test/unit [--wt <name>] [--parallel] <path> [--filter <regex>]
+       bin/test/unit --xdebug|--coverage <path>
+
+  --info            Print what this runner will do (checkout, PHPUnit, ParaTest, commands)
+  --wt <name>       Run on that worktree (bin/wt path <name>) in a throwaway container
+  --parallel        ParaTest. Exit 2 when ParaTest is not installed
+  --filter <regex>  Serial only
+  --xdebug          PHPUnit through bin/debug-cli, active checkout only
+  --coverage        HTML coverage in dev/tests/unit/report, active checkout only
+
+<path> is relative to the Magento root, for example app/code/Vendor/Module.
+TEST_PROCESSES sets the ParaTest process count (default 2) when there is no composer script.
+USAGE
+}
+
+info=0 parallel=0 debug='' wt='' filter='' path=''
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -h | --help) usage; exit 0 ;;
+    --info) info=1; shift ;;
+    --parallel) parallel=1; shift ;;
+    --xdebug | --coverage) debug="${1#--}"; shift ;;
+    --wt)
+      [[ $# -ge 2 && -n "$2" ]] || die '--wt needs a worktree name'
+      wt="$2"; shift 2 ;;
+    --filter)
+      [[ $# -ge 2 && -n "$2" ]] || die '--filter needs a pattern'
+      filter="$2"; shift 2 ;;
+    -*) usage >&2; die "Unknown option: $1" ;;
+    *)
+      [[ -z "$path" ]] || die "Only one path, got: $path and $1"
+      path="$1"; shift ;;
+  esac
+done
+
+# ---- target checkout --------------------------------------------------------
+if [[ -n "$wt" ]]; then
+  target="$("$ROOT/bin/wt" path "$wt" 2>/dev/null)" || die "Unknown worktree '$wt'. See: bin/wt list"
+  target="$(realpath "$target")"
+  mode='container'
+  name="$wt"
+else
+  target="$(realpath -e "$ROOT/.active-src" 2>/dev/null || realpath "$SRC")"
+  mode='active'
+  if [[ "$target" == "$(realpath "$SRC")" ]]; then name='main'; else name="$(basename "$target")"; fi
+fi
+
+has_script() { grep -Eq "\"$1\"[[:space:]]*:" "$target/composer.json" 2>/dev/null; }
+phpunit_version() {
+  grep -o "VersionId('[0-9.]*'" "$SRC/vendor/phpunit/phpunit/src/Runner/Version.php" 2>/dev/null \
+    | grep -o '[0-9][0-9.]*' || printf 'unknown'
+}
+has_paratest() { [[ -e "$SRC/vendor/bin/paratest" ]]; }
+
+if has_script 'test:unit'; then
+  serial_cmd=(composer test:unit --)
+else
+  serial_cmd=(vendor/bin/phpunit -c "$PHPUNIT_CONFIG")
+fi
+if ! has_paratest; then
+  parallel_cmd=()
+elif has_script 'test:unit:parallel'; then
+  parallel_cmd=(composer test:unit:parallel --)
+else
+  parallel_cmd=(vendor/bin/paratest -p "$PROCESSES" -c "$PHPUNIT_CONFIG")
+fi
+
+if [[ "$info" -eq 1 ]]; then
+  printf 'checkout=%s (%s)\n' "$name" "$mode"
+  printf 'phpunit=%s\n' "$(phpunit_version)"
+  if has_paratest; then printf 'paratest=yes\n'; else printf 'paratest=missing\n'; fi
+  printf 'processes=%s\n' "$PROCESSES"
+  printf 'serial=%s\n' "${serial_cmd[*]% --}"
+  if [[ ${#parallel_cmd[@]} -gt 0 ]]; then
+    printf 'parallel=%s\n' "${parallel_cmd[*]% --}"
+  else
+    printf 'parallel=unavailable\n'
+  fi
+  exit 0
+fi
+
+[[ -n "$path" ]] || { usage >&2; exit 2; }
+
+# ---- xdebug / coverage: upstream bin/debug-cli on the active checkout ---------
+if [[ -n "$debug" ]]; then
+  [[ -z "$wt" && "$parallel" -eq 0 ]] || die "--$debug runs on the active checkout only, without --wt or --parallel"
+  cd "$ROOT"
+  if [[ "$debug" == xdebug ]]; then
+    exec bin/debug-cli php vendor/bin/phpunit -c "$PHPUNIT_CONFIG" ${filter:+--filter "$filter"} "$path"
+  fi
+  exec bin/debug-cli php -d xdebug.mode=coverage vendor/bin/phpunit -c "$PHPUNIT_CONFIG" \
+    --coverage-html dev/tests/unit/report ${filter:+--filter "$filter"} "$path"
+fi
+
+# ---- command ----------------------------------------------------------------
+if [[ "$parallel" -eq 1 ]]; then
+  [[ -z "$filter" ]] || die '--filter is serial only. For --parallel pick a file or directory instead'
+  if [[ ${#parallel_cmd[@]} -eq 0 ]]; then
+    case "$(phpunit_version)" in
+      9.*) hint='bin/composer require --dev brianium/paratest:^6' ;;
+      10.* | 11.*) hint='bin/composer require --dev brianium/paratest:^7' ;;
+      *) hint='bin/composer require --dev brianium/paratest (^6 for PHPUnit 9, ^7 for PHPUnit 10)' ;;
+    esac
+    die "ParaTest is not installed, --parallel is unavailable. Install it (a project decision): $hint. Or run without --parallel."
+  fi
+  cmd=("${parallel_cmd[@]}")
+else
+  cmd=("${serial_cmd[@]}")
+  # The worktree is read-only in the container: do not write .phpunit.result.cache.
+  [[ "$mode" == container ]] && cmd+=(--do-not-cache-result)
+  [[ -z "$filter" ]] || cmd+=(--filter "$filter")
+fi
+cmd+=("$path")
+
+if [[ "$mode" == active ]]; then
+  cd "$ROOT"
+  exec bin/docker-compose exec -T phpfpm "${cmd[@]}"
+fi
+
+# ---- throwaway container (bin/wt run) ----------------------------------------
+exec "$ROOT/bin/wt" run "$wt" "${cmd[@]}"
