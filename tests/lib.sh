@@ -309,28 +309,17 @@ run_in() {
   run_cmd bash -c 'cd "$1" && shift && exec "$@"' _ "$dir" "$@"
 }
 
-# Run this repo's install.sh.
-run_installer() {
-  run_cmd "$KIT_REPO_ROOT/install.sh" "$@"
-}
-
-# Install a new Docker root into $SANDBOX/<name> using the package checkout as the source.
-kit_new() {
-  local name="${1:-root}"
-  shift || true
-  run_installer new "$SANDBOX/$name" --source "$KIT_REPO_ROOT" "$@"
-}
-
-# Fingerprint of a directory tree: path, executable bit and content sha256.
-tree_digest() {
-  local dir="$1" rel
-  (
-    cd "$dir" || exit 1
-    find . -type f -print | LC_ALL=C sort | while IFS= read -r rel; do
-      if [[ -x "$rel" ]]; then printf 'x '; else printf -- '- '; fi
-      printf '%s  %s\n' "$(sha256sum "$rel" | cut -d' ' -f1)" "$rel"
-    done
-  )
+# Docker root $SANDBOX/<name> holding a copy of the kit's docker/ overlay. Sets ROOT.
+root_new() {
+  ROOT="$SANDBOX/${1:-root}"
+  mkdir -p "$ROOT"
+  cp -a "$KIT_REPO_ROOT/docker/." "$ROOT/"
+  # Stand-in for the upstream markshust bin/magento (bin/cli -> compose exec phpfpm).
+  cat > "$ROOT/bin/magento" <<'STUB'
+#!/usr/bin/env bash
+docker compose exec phpfpm bin/magento "$@"
+STUB
+  chmod 755 "$ROOT/bin/magento"
 }
 
 # Run every defined test_* function, in alphabetical order.

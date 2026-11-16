@@ -1,8 +1,7 @@
 magento-docker-kit
 Copyright (c) 2026 magento-docker-kit contributors
 
-This package is based on markshust/docker-magento, version 52.1.0
-(https://github.com/markshust/docker-magento, tag 52.1.0, commit 01c5b6afc68cd639ba94f990f16e9a66d218896c).
-The upstream snapshot lives in dist/files and dist/templates.
+docker/bin/docker-compose and docker/bin/phpcs are modified copies of files from
+markshust/docker-magento (https://github.com/markshust/docker-magento).
 Upstream is released under the MIT license, Copyright (c) 2016 Mage Inferno.
 The license text is in the LICENSE file.

@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 # S1 test for bin/wt (core): create from the remote, refuse bad names, use refuses paths
 # outside .worktrees/, prepare, list, status, path, shell, remove, mounts, and bin/watch
-# following the target of .active-src. The Docker root is installed with install.sh new
-# --source, git is real with a bare remote having master and staging, and docker is a
+# following the target of .active-src. The Docker root is a copy of docker/, git is real with a bare remote having master and staging, and docker is a
 # fake that logs. Ported from tests/test-magento-wt.sh of the Format project.
 #
 # Usage:  bash tests/test-wt.sh
@@ -38,13 +37,12 @@ STUB
 # Docker root `shop` with src/ cloned from the bare remote (remote named origin, with
 # master and staging). master holds a Magento-style whitelist .gitignore and
 # composer.json, while the core files (bootstrap.php, env.php...) exist only in src/ and
-# are ignored by Git. The profile declares the Git keys unless $1 is no-git-keys.
+# are ignored by Git. src/ sets git config wt.from / wt.into unless $1 is no-git-keys.
 new_root() {
   sandbox_new
   install_docker
   git_remote_new
-  kit_new shop --domain shop.test > /dev/null
-  ROOT="$SANDBOX/shop"
+  root_new shop
   SRC="$ROOT/src"
 
   rm -rf "$SRC"
@@ -68,15 +66,9 @@ new_root() {
   printf 'server {}\n' > "$SRC/nginx.conf.sample"
 
   if [[ "${1:-}" != no-git-keys ]]; then
-    set_profile KIT_GIT_REMOTE origin
-    set_profile KIT_GIT_BASE_BRANCH master
-    set_profile KIT_GIT_TARGET_BRANCH staging
+    git -C "$SRC" config wt.from origin/master
+    git -C "$SRC" config wt.into origin/staging
   fi
-}
-
-# Write KEY=value into project/profile.env (replace the existing KEY= line).
-set_profile() {
-  sed -i "s|^$1=.*|$1=$2|" "$ROOT/project/profile.env"
 }
 
 wt() {
@@ -152,33 +144,40 @@ test_create_rejects_bad_names() {
   assert_absent "$ROOT/.active-src" 'a bad name does not create .active-src'
 }
 
-test_create_missing_git_keys() {
+test_create_needs_a_base() {
   new_root no-git-keys
   wt create feature/x
-  assert_status_nonzero 'create stops when the Git keys are missing'
-  assert_contains 'KIT_GIT_REMOTE' 'the error names KIT_GIT_REMOTE'
-  assert_contains 'KIT_GIT_BASE_BRANCH' 'the error names KIT_GIT_BASE_BRANCH'
-  assert_absent "$ROOT/.worktrees/feature-x" 'no worktree is created when a key is missing'
-  set_profile KIT_GIT_REMOTE origin
-  wt create feature/x
-  assert_status_nonzero 'still stops when one key is missing'
-  assert_contains 'KIT_GIT_BASE_BRANCH' 'the error names the missing key'
-  assert_not_contains 'KIT_GIT_REMOTE' 'the error does not mention the key already set'
+  assert_status_nonzero 'create stops when neither --from nor wt.from is set'
+  assert_contains '--from' 'the error names --from'
+  assert_contains 'git -C src config wt.from' 'the error shows how to set wt.from'
+  assert_absent "$ROOT/.worktrees/feature-x" 'no worktree is created without a base'
+  wt create feature/x --from origin/master
+  assert_status 0 '--from works without wt.from'
+  assert_dir "$ROOT/.worktrees/feature-x" 'the worktree is created from --from'
+  wt create feature/y --from master
+  assert_status_nonzero 'a --from without <remote>/ is refused'
+  assert_contains '<remote>/<branch>' 'the error names the expected form'
+}
+
+test_create_from_overrides_config() {
+  new_root
+  wt create feature/z --from origin/staging
+  assert_status 0 'create --from exits 0'
+  assert_equals "$(git -C "$SRC" rev-parse origin/staging)" "$(git -C "$ROOT/.worktrees/feature-z" rev-parse HEAD)" '--from wins over wt.from'
+  assert_contains 'from origin/staging' 'create names the base it used'
 }
 
 test_create_bad_ref_after_fetch() {
   new_root
-  set_profile KIT_GIT_BASE_BRANCH no-such-branch
+  git -C "$SRC" config wt.from origin/no-such-branch
   wt create feature/x
   assert_status_nonzero 'create stops when the base branch is not on the remote'
-  assert_contains 'KIT_GIT_BASE_BRANCH' 'the error names the key to fix'
   assert_contains 'origin/no-such-branch' 'the error names the missing ref'
   assert_absent "$ROOT/.worktrees/feature-x" 'no worktree is created'
-  set_profile KIT_GIT_BASE_BRANCH master
-  set_profile KIT_GIT_REMOTE no-such-remote
+  git -C "$SRC" config wt.from no-such-remote/master
   wt create feature/x
   assert_status_nonzero 'create stops when the remote is not in src/'
-  assert_contains 'KIT_GIT_REMOTE=no-such-remote' 'the error names the wrong remote'
+  assert_contains "no remote 'no-such-remote'" 'the error names the wrong remote'
 }
 
 test_create_refuses_existing_branch_and_dir() {
@@ -331,24 +330,6 @@ test_prepare_warns_on_lock_mismatch() {
   assert_contains 'composer.lock differs from src/' 'prepare warns that composer.lock differs'
 }
 
-test_prepare_runs_agent_install_only_when_present() {
-  new_root
-  wt create feature/one
-  assert_status 0 'create exits 0 when bin/agent is not there yet'
-  rm -f "$ROOT/bin/agent"
-  cat > "$ROOT/bin/agent" <<'STUB'
-#!/usr/bin/env bash
-printf 'agent %s cwd=%s\n' "$*" "$PWD" >> "${KIT_LOG_DIR:?}/agent.log"
-STUB
-  chmod 755 "$ROOT/bin/agent"
-  wt prepare feature-one
-  assert_status 0 'prepare exits 0 when bin/agent exists'
-  assert_file_line "$KIT_LOG_DIR/agent.log" "agent install cwd=$ROOT/.worktrees/feature-one" 'prepare runs bin/agent install in the worktree'
-  : > "$KIT_LOG_DIR/agent.log"
-  wt prepare main
-  assert_equals '' "$(cat "$KIT_LOG_DIR/agent.log")" 'prepare main does not install the agent kit'
-}
-
 test_list_marks_active() {
   new_root
   wt create feature/one
@@ -470,7 +451,7 @@ test_remove_refuses_dirty_and_outside() {
 }
 
 test_overlay_mounts_active_src_and_shares_dirs() {
-  local f="$KIT_REPO_ROOT/dist/files/compose.worktree.yaml" t
+  local f="$KIT_REPO_ROOT/docker/compose.worktree.yaml" t
   assert_file_matches "$f" '\./\.active-src:/var/www/html:cached' 'the overlay mounts .active-src at /var/www/html'
   for t in vendor node_modules pub/media; do
     assert_file_matches "$f" "\./src/$t:/var/www/html/$t" "the overlay shares $t from src/"

@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# markshust/docker-magento bin/phpcs, plus --wt <name>: check a worktree that the stack
+# does not serve, in a throwaway container (bin/wt run).
+#
+#   bin/phpcs [phpcs options] <path>
+#   bin/phpcs --wt <name> [phpcs options] <path>
+# shellcheck disable=SC2054 # the commas belong to the --extensions value
+PHPCS=(vendor/bin/phpcs --standard=Magento2 --extensions=php,phtml --error-severity=10 --ignore-annotations)
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+
+if [ "$1" == "--wt" ]; then
+  if [ -z "$2" ]; then
+    echo "ERROR: --wt needs a worktree name" >&2
+    exit 2
+  fi
+  name="$2"
+  shift 2
+  exec "$ROOT/bin/wt" run "$name" "${PHPCS[@]}" "$@"
+fi
+
+cd "$ROOT" && exec bin/docker-compose exec -T phpfpm "${PHPCS[@]}" "$@"

@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
-# S1 test for bin/wt adopt, prune and doctor. The Docker root is installed with install.sh
-# new --source, git is real with a bare remote having master and staging, and docker is a
+# S1 test for bin/wt adopt, prune and doctor. The Docker root is a copy of docker/, git is real with a bare remote having master and staging, and docker is a
 # fake that logs. Covers: adopt from an outside path, prune with a clean merged worktree,
 # with changes, not merged, review and outside the standard location, doctor reporting a
-# wrong mount, a base_url mismatch, an unknown key and a missing required key.
+# wrong mount.
 #
 # Usage:  bash tests/test-wt-maintenance.sh
 set -Eeuo pipefail
@@ -11,8 +10,7 @@ set -Eeuo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)/lib.sh"
 
 # Fake docker: `docker info` follows the online flag, `compose ps -q phpfpm` returns an id,
-# `docker inspect` returns $KIT_TEST_MOUNT_SRC, and an exec command with core_config_data
-# returns $KIT_TEST_BASE_URL (standing in for bin/mysql).
+# and `docker inspect` returns $KIT_TEST_MOUNT_SRC.
 install_docker() {
   cat > "$SANDBOX/.fakebin/docker" <<'STUB'
 #!/usr/bin/env bash
@@ -25,7 +23,6 @@ case "$*" in
     ;;
   *'ps -q phpfpm'*) printf 'cid-phpfpm\n' ;;
   inspect*) printf '%s\n' "${KIT_TEST_MOUNT_SRC:-}" ;;
-  *core_config_data*) printf '%s\n' "${KIT_TEST_BASE_URL:-}" ;;
 esac
 exit 0
 STUB
@@ -35,13 +32,12 @@ STUB
 # Docker root `shop` with src/ cloned from the bare remote (remote named origin, with
 # master and staging). master holds a Magento-style whitelist .gitignore and
 # composer.json, while the core files (bootstrap.php, env.php...) exist only in src/ and
-# are ignored by Git. The profile declares the Git keys unless $1 is no-git-keys.
+# are ignored by Git. src/ sets git config wt.from / wt.into unless $1 is no-git-keys.
 new_root() {
   sandbox_new
   install_docker
   git_remote_new
-  kit_new shop --domain shop.test > /dev/null
-  ROOT="$SANDBOX/shop"
+  root_new shop
   SRC="$ROOT/src"
 
   rm -rf "$SRC"
@@ -67,15 +63,9 @@ new_root() {
   printf 'server {}\n' > "$SRC/nginx.conf.sample"
 
   if [[ "${1:-}" != no-git-keys ]]; then
-    set_profile KIT_GIT_REMOTE origin
-    set_profile KIT_GIT_BASE_BRANCH master
-    set_profile KIT_GIT_TARGET_BRANCH staging
+    git -C "$SRC" config wt.from origin/master
+    git -C "$SRC" config wt.into origin/staging
   fi
-}
-
-# Write KEY=value into project/profile.env (replace the existing KEY= line).
-set_profile() {
-  sed -i "s|^$1=.*|$1=$2|" "$ROOT/project/profile.env"
 }
 
 wt() {
@@ -220,16 +210,19 @@ test_prune_skips_dirty_review_and_active() {
   assert_dir "$ROOT/.worktrees/review-mr9" 'the review worktree with uncommitted changes is not deleted'
 }
 
-test_prune_needs_git_keys() {
+test_prune_needs_a_target() {
   new_root no-git-keys
   wt prune --dry-run
-  assert_status_nonzero 'prune stops when the Git keys are missing'
-  assert_contains 'KIT_GIT_REMOTE' 'it names the key to fix'
+  assert_status_nonzero 'prune stops when neither --into nor wt.into is set'
+  assert_contains 'git -C src config wt.into' 'the error shows how to set wt.into'
+  wt prune --dry-run --into origin/staging
+  assert_status 0 '--into works without wt.into'
+  assert_contains 'Checking against origin/staging' 'prune names the target it used'
   new_root
-  set_profile KIT_GIT_TARGET_BRANCH no-such-branch
+  git -C "$SRC" config wt.into origin/no-such-branch
   wt prune --dry-run
   assert_status_nonzero 'it stops when the target ref does not exist'
-  assert_contains 'KIT_GIT_TARGET_BRANCH' 'it names the key to fix when the ref is missing'
+  assert_contains 'origin/no-such-branch' 'it names the missing ref'
   wt prune --nope
   assert_status_nonzero 'prune refuses an unknown argument'
 }
@@ -240,7 +233,6 @@ test_doctor_mount_mismatch() {
   wt create feature/one
   wt use feature-one
   export KIT_TEST_MOUNT_SRC="$SRC"
-  export KIT_TEST_BASE_URL='https://shop.test/'
   wt doctor
   assert_status_nonzero 'doctor exits nonzero when the mount is wrong'
   assert_contains "mounts $SRC" 'doctor names the real mount'
@@ -248,41 +240,17 @@ test_doctor_mount_mismatch() {
   export KIT_TEST_MOUNT_SRC="$ROOT/.worktrees/feature-one"
   : > "$KIT_LOG_DIR/docker.log"
   wt doctor
-  assert_status 0 'doctor exits 0 when the mount is right and base_url matches'
+  assert_status 0 'doctor exits 0 when the mount is right'
   assert_contains 'phpfpm mounts the right path' 'doctor confirms the mount'
-  assert_contains 'base_url matches KIT_DOMAIN' 'doctor confirms base_url'
   assert_contains 'docker inspect' 'doctor uses docker inspect' "$(cat "$KIT_LOG_DIR/docker.log")"
   assert_equals 1 "$(grep -c '^docker inspect' "$KIT_LOG_DIR/docker.log")" 'doctor calls docker inspect once'
-  unset KIT_TEST_MOUNT_SRC KIT_TEST_BASE_URL
-}
-
-test_doctor_base_url_mismatch() {
-  new_root
-  set_docker_online
-  export KIT_TEST_MOUNT_SRC="$SRC"
-  export KIT_TEST_BASE_URL='https://old.example.com:8443/'
-  wt doctor
-  assert_status_nonzero 'doctor exits nonzero when base_url differs'
-  assert_contains 'old.example.com' 'doctor names the base_url in the DB'
-  assert_contains 'KIT_DOMAIN=shop.test' 'doctor names KIT_DOMAIN'
-  unset KIT_TEST_MOUNT_SRC KIT_TEST_BASE_URL
-}
-
-test_doctor_profile_keys() {
-  new_root
-  printf 'KIT_TYPO_KEY=1\n' >> "$ROOT/project/profile.env"
-  set_profile KIT_GIT_TARGET_BRANCH ''
-  wt doctor
-  assert_status_nonzero 'doctor exits nonzero on an unknown key and a missing key'
-  assert_contains 'Unknown key KIT_TYPO_KEY' 'doctor reports the unknown key'
-  assert_contains 'Missing required key KIT_GIT_TARGET_BRANCH' 'doctor reports the missing required key'
-  assert_docker_not_called 'doctor stops before the Docker checks when the profile is invalid'
+  unset KIT_TEST_MOUNT_SRC
 }
 
 test_doctor_clean_offline() {
   new_root
   wt doctor
-  assert_status 0 'doctor exits 0 when the profile is complete and docker is off'
+  assert_status 0 'doctor exits 0 when docker is off'
   assert_contains 'SKIPPED: Docker daemon is off' 'doctor says what was skipped'
 }
 
