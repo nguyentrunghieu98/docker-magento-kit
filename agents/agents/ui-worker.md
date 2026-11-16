@@ -57,5 +57,3 @@ print `TASK_FAILED: prerequisite <checkout> is not served`. Never switch it your
   that only fits the tested width.
 - Never write a password, a token or a cookie into the task file, a screenshot name or a note.
 - Do not commit, push or switch the served checkout.
-- Never update a screenshot baseline of a regression suite. A diff is a finding: fix it, or
-  report it with the diff image.
