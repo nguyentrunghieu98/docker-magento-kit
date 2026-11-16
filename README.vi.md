@@ -36,7 +36,7 @@ thật của mình ở đó, trong `AGENTS.md` và các reference.
 ```text
 kit                                  Docker root
 ├── sync ───────────────────────────▶
-├── docker/  ───────────────────────▶ bin/wt, bin/test/unit, bin/phpcs, compose.worktree.yaml
+├── docker/  ───────────────────────▶ bin/wt, bin/test/unit, bin/test/ui-regression, bin/phpcs, compose.worktree.yaml
 └── agents/  ───────────────────────▶ src/.agents/skills, src/.agents/agents, src/.agents/hooks
 
 Docker root                          Git
@@ -232,6 +232,11 @@ flowchart TD
 - Ảnh đạt khi cho thấy đúng điều requirement nói ở độ rộng đó, trang không cuộn ngang, và console
   không có lỗi mà trang chưa có trước khi sửa.
 - Bằng chứng thuộc về bản sửa cuối: sửa thêm là mọi ảnh cũ hết hiệu lực.
+- Ngoài requirement, dự án có thể giữ một bộ hồi quy Playwright Test trong
+  `dev/tests/ui-regression/`: mỗi trang chính và độ rộng một spec `toHaveScreenshot()`, so với
+  baseline đã commit. `bin/test/ui-regression` chạy bộ này trong image Playwright chính thức đúng
+  phiên bản suite ghim, trên checkout đang phục vụ, một worker. Bộ này chạy khi đổi style hoặc
+  layout dùng chung. Agent không bao giờ tự cập nhật baseline: người dùng duyệt.
 
 ## Unit test
 
@@ -314,6 +319,7 @@ cách dùng.
 | `docker/compose.worktree.yaml` | Overlay mount `.active-src`, tức checkout đang phục vụ |
 | `docker/bin/docker-compose` | File của upstream, thêm một khối nạp overlay khi `.active-src` là symlink |
 | `docker/bin/test/unit` | Runner unit test duy nhất: serial, `--parallel`, `--wt`, `--xdebug`, `--coverage` |
+| `docker/bin/test/ui-regression` | Runner bộ ảnh chụp: Playwright Test trong image chính thức của phiên bản đã ghim, checkout đang phục vụ, một worker, `--update` |
 | `docker/bin/phpcs` | File của upstream, thêm `--wt <name>` |
 | `docker/bin/watch` | Watcher frontend đi theo `.active-src` |
 | `docker/conf/php/opcache.ini` | Cấu hình OPcache cho môi trường dev |

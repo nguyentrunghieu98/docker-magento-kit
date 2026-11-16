@@ -39,6 +39,7 @@ Run the gates for the surfaces you changed, after the last edit, and record one 
 | `db_schema.xml`, data patch, enabling a module | schema | `bin/magento setup:upgrade` then `cache:flush`, tell the user first | exit 0 |
 | Layout, template, JS, LESS, CSS, UI component | frontend build | the rebuild table in `ui-testing.md` | exit 0, the page shows the change |
 | Layout, template, JS, LESS, CSS, UI component | UI | one screenshot per `ui:` requirement, see `ui-testing.md` | shows what the requirement says, no horizontal overflow, console clean |
+| Shared LESS or `_extend.less`, layout `default.xml`, a theme `.phtml` or `.js` used on many pages | UI regression | `ui-regression` command of `ui-testing.md` | no diff beyond the tolerance, baselines untouched |
 | Queue, consumer, cron | real run | restart the consumer or run cron, read `var/log` | no new errors |
 | `app/etc/config.php` | diff | `git diff -- app/etc/config.php` | only your module's line |
 | No automated test | manual check | list the steps and expected results | the user confirms |
