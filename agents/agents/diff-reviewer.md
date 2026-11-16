@@ -19,6 +19,8 @@ given.
   that breaks a parallel run is a finding.
 - Gates: every gate `testing.md` requires for the changed surfaces has a result line, and every
   result belongs to the last revision. A worker's word is not evidence, look for the output.
+- UI: every `ui:` requirement has its screenshot in `evidence/`. Open each one: it must show what
+  the requirement says, at that width, and be newer than the last edit of the task's files.
 - Code standards rules a machine cannot check. Style PHPCS can verify is Low at most.
 
 ## Return

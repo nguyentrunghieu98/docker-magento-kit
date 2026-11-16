@@ -9,7 +9,7 @@ After the merge request is merged, delete `spec.md`, `critique.md` and `issues/`
 ├── spec.md              goal, scope, success criteria, task table, dependency graph
 ├── critique.md          written by devils-advocate
 ├── issues/NN-slug.md    one task per file, numbered from 01
-└── evidence/            gate output and backups worth keeping after the merge
+└── evidence/            gate output, UI screenshots and backups worth keeping after the merge
 ```
 
 ## spec.md
@@ -79,3 +79,26 @@ Two to four sentences: what and why.
   `- [ ] gate: <gate>`, and does not count toward the 7. Gates that cover the whole change belong in
   `spec.md`, not in a task.
 - A ticked requirement carries the real result line of the command that proved it.
+
+## UI tasks
+
+What a user sees cannot be a unit test name. It is a `ui:` requirement, proved by a screenshot:
+
+```markdown
+## Requirements (UI)
+- [ ] ui: /customer/account/create @ 390 | the form is one column and nothing scrolls sideways
+- [ ] ui: /customer/account/create @ 1440 | an empty submit shows the error under each field
+- [ ] ui: admin sales/order/view, any order @ 1440 | the "Complaint" button opens a modal with a title and two buttons
+```
+
+- Form: `ui: <page> @ <width> | <what must be visible>`. The page is a path, or the screen and the
+  steps to reach it. The width is in CSS pixels, from the project's UI testing reference. What must
+  be visible is one observation a person can confirm on the screenshot, never "looks good".
+- A task with a `ui:` requirement is a UI task: 1 to 7 `ui:` requirements and no test names. Put
+  the PHP behavior behind the screen in its own task and make the UI task `Blocked by` it.
+- `Files` lists the view files: layout, templates, styles, scripts, UI component XML.
+- A UI task runs with the `ui-worker` role, on the served checkout, and alone: one checkout is
+  served at a time.
+- A ticked `ui:` requirement carries the screenshot path in `evidence/`, named
+  `NN-<requirement number>-<width>.png`, and the console errors the change added, for example
+  `evidence/03-1-390.png, console: 0 new errors`.

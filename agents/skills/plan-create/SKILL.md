@@ -28,6 +28,9 @@ Read first: `AGENTS.md`, then the project references it names. The plan format i
    - each task is one observable piece of behavior with 3 to 7 requirements written as test names;
    - declare `Blocked by` and `Files` completely, including test files;
    - mark `Serial: yes` for schema, data patch, module enabling, queue or other shared state;
+   - write what the user sees as a UI task with `ui:` requirements, one per page and width, using
+     the widths and pages of the project's UI testing reference, blocked by the task that builds
+     the behavior behind it;
    - check the dependency graph has no cycle and that no two independent tasks share a file
      (make one block the other instead);
    - fill the task table and the dependency graph in `spec.md`.
@@ -47,4 +50,5 @@ Read first: `AGENTS.md`, then the project references it names. The plan format i
 - Never `git checkout -b` or `git worktree add`: the branch comes from the command in `AGENTS.md`.
 - Never write production code or tests here. The plan is the output.
 - Never commit anything under `.scratch/`.
-- A requirement that is not a test name is a manual step or a named gate, written as such.
+- A requirement that is not a test name is a `ui:` observation, a manual step or a named gate,
+  written as such.

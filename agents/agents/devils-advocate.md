@@ -13,6 +13,8 @@ and `code-standards.md`. Read the code the plan touches to check its claims.
 
 - Requirements missing from the request, or tasks that do something nobody asked for.
 - Requirements that are not test names, could not fail on a real defect, or test wiring and wording.
+- Something the user will see with no `ui:` requirement, or a `ui:` requirement nobody can confirm
+  on a screenshot, without a page or a width, or mixed into a task with test names.
 - `Blocked by` that is missing, wrong or forms a cycle. Two tasks without an order that share a
   file in `Files:`. `Files:` lists that miss the test file or a registration file.
 - Project seams the plan forgets: dependency injection, plugin or observer registration,

@@ -43,9 +43,12 @@ Running commands, Checkouts, How to work, Project references, Git, Project speci
 120 lines: every line is loaded on every turn. State that the Docker commands run from the Docker
 root (`../bin/...` from the agent root).
 
-Then copy the three project references from `references/examples/magento/` and edit them for this
-project: `architecture.md`, `testing.md`, `code-standards.md`. The skills read them, and
-`AGENTS.md` points at them.
+Then copy the four project references from `references/examples/magento/` and edit them for this
+project: `architecture.md`, `testing.md`, `code-standards.md`, `ui-testing.md`. The skills and
+roles read them, and `AGENTS.md` points at them. Copy `ui-conventions.md` to the rules path the
+hook is wired with, keep the platform rules that apply, and add the project's own design rules
+(theme, class prefix, widths, what the design forbids). Ask the user for the UI facts the code
+does not hold: the base URL, how to log in, which browser tool takes the screenshots.
 
 ## 4. Verify
 
@@ -54,6 +57,8 @@ project: `architecture.md`, `testing.md`, `code-standards.md`. The skills read t
 - The test command's info mode prints what it will run.
 - Feed the hook a UI path, expect the rules once, then a reminder. Feed it a non-UI path, expect
   silence.
+- Take one screenshot with the commands of `ui-testing.md`, at each width it lists: the image
+  shows the served checkout's home page and the console check prints a count.
 - Open one harness session at the agent root: `AGENTS.md` is loaded and the four skills
   (`plan-create`, `plan-orchestrate`, `project-update`, `project-setup`) are in the catalog.
 - Create a worktree with the checkout command: `AGENTS.md` and `.agents/skills` resolve inside it,
