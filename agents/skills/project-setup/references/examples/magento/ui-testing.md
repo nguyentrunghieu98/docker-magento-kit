@@ -71,19 +71,26 @@ spec per key page (login, cart, checkout, product, one admin screen) at the widt
 ending in `await expect(page).toHaveScreenshot('<page>-<width>.png')`.
 
 ```bash
-bin/test/ui-regression                  # compare with the baselines
-bin/test/ui-regression --update         # rewrite the baselines: the user approves first
+bin/test/ui-regression --info                      # checkout, suite, Playwright version, image
+bin/test/ui-regression                             # compare with the baselines
+bin/test/ui-regression login-390.spec.ts -- -g cart  # a spec, then Playwright arguments
+bin/test/ui-regression --update                    # rewrite the baselines: the user approves first
 ```
 
-- `bin/test/ui-regression` is the project's own runner, not part of the kit. It runs with one
-  worker, on the served checkout, from the fixed container or machine named in the project's
-  `playwright.config`. A baseline taken elsewhere differs in fonts and anti-aliasing.
+- `bin/test/ui-regression` comes with the kit. The suite is the project's: `playwright.config.*`,
+  the specs and a `package.json` that pins `@playwright/test` to an exact version, all in
+  `dev/tests/ui-regression/`. The runner starts the official Playwright image of that version as
+  your user, with one worker, so the baselines (committed next to the specs) are the same on every
+  machine. A baseline taken outside that image differs in fonts and anti-aliasing.
+- It runs on the served checkout only and stops with exit 2 otherwise: `bin/wt use <name>` first.
+- Access headers and `BASE_URL` come from `env/ui-regression.env`, or `--env-file <path>` in the
+  Docker root. They reach the config as `process.env`.
 - The config sets what the site needs: the access headers, `ignoreHTTPSErrors`, `workers: 1`,
   `animations: 'disabled'`, a `maxDiffPixelRatio` just above the noise of two clean runs.
 - Every spec masks what changes between runs: banners, prices, dates, counters, customer data.
   Never raise the tolerance to hide a real diff.
-- A first run with no baseline only writes the images and proves nothing. A baseline is written
-  by a person's run and committed with the specs.
+- A spec with no baseline fails and writes the `actual` image, so a missing baseline never passes
+  by accident. A person runs `--update`, opens the images, and commits them with the specs.
 - A failure leaves `expected`, `actual` and `diff` images. Open the diff. A real regression is
   fixed in the view files. A wanted change is reported to the user, who approves the new baseline.
   An agent never runs `--update` on its own.
