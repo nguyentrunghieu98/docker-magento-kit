@@ -7,14 +7,7 @@ set -Eeuo pipefail
 # shellcheck source=tests/lib.sh
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)/lib.sh"
 
-HOOK="$REPO_ROOT/agents/hooks/kit-drift.sh"
-
-new_project() {
-  sandbox_new
-  PROJECT="$SANDBOX/project"
-  mkdir -p "$PROJECT"
-  export CLAUDE_PROJECT_DIR="$PROJECT"
-}
+new_project() { hook_project_new kit-drift.sh; }
 
 event() { jq -r '.hookSpecificOutput.hookEventName // empty' <<<"$OUTPUT" 2>/dev/null || true; }
 
@@ -37,18 +30,29 @@ test_a_fresh_project_is_reported() {
 
 test_synced_project_is_silent() {
   new_project
-  "$REPO_ROOT/sync" --target "$PROJECT" --apply --quiet >/dev/null
+  "$REPO_ROOT/sync" --target "$ROOT" --apply --quiet >/dev/null
   run_drift "$REPO_ROOT"
   assert_equals '' "$OUTPUT" 'a synced project gets no reminder'
 }
 
 test_skip_paths_are_passed_through() {
   new_project
-  "$REPO_ROOT/sync" --target "$PROJECT" --apply --quiet --skip compose.worktree.yaml >/dev/null
+  "$REPO_ROOT/sync" --target "$ROOT" --apply --quiet --skip compose.worktree.yaml >/dev/null
   run_drift "$REPO_ROOT" compose.worktree.yaml
   assert_equals '' "$OUTPUT" 'the skipped file does not raise a reminder'
   run_drift "$REPO_ROOT"
   assert_contains 'is ahead' 'without the skip the file is reported'
+}
+
+test_a_harness_opened_in_a_worktree_checks_the_docker_root() {
+  new_project
+  "$REPO_ROOT/sync" --target "$ROOT" --apply --quiet >/dev/null
+  hook_worktree_new
+  run_drift "$REPO_ROOT"
+  assert_equals '' "$OUTPUT" 'a synced project is silent from a worktree too'
+  rm "$ROOT/bin/wt"
+  run_drift "$REPO_ROOT"
+  assert_contains 'is ahead' 'drift in the Docker root is reported from a worktree'
 }
 
 test_bad_kit_paths_are_silent() {

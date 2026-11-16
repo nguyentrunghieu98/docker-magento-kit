@@ -3,21 +3,22 @@
 # UI file under the app source tree, inject the project's UI rules into the agent
 # context. Full text once per session, a one-line reminder afterwards. Silent otherwise.
 #
-#   ui-conventions.sh <rules path relative to the project root>
+#   ui-conventions.sh <rules path relative to a checkout>
 #   e.g. "$CLAUDE_PROJECT_DIR"/.agents/hooks/ui-conventions.sh docs/agents/ui-conventions.md
 #
-# The rules come from the checkout being edited, else from <project>/src. Missing rules
-# print a warning on stderr and never block the edit.
+# The rules come from the checkout being edited, else from the main checkout (src/), found
+# from this script in <main checkout>/.agents/hooks/. Missing rules print a warning on
+# stderr and never block the edit.
 rules="${1:-}"
 if [ -z "$rules" ]; then
-  echo "Usage: ui-conventions.sh <rules path relative to the project root>" >&2
+  echo "Usage: ui-conventions.sh <rules path relative to a checkout>" >&2
   exit 1
 fi
 
 input=$(cat)
 sid=$(jq -r '.session_id // "nosession"' <<<"$input")
 cwd=$(jq -r '.cwd // empty' <<<"$input")
-project="${CLAUDE_PROJECT_DIR:-${cwd:-$PWD}}"
+project="$(cd "$(dirname "$(realpath "${BASH_SOURCE[0]}")")/../.." && pwd -P)"
 
 # Claude: tool_input.file_path. Codex apply_patch: patch text in tool_input.command.
 files=$(jq -r '.tool_input.file_path // empty' <<<"$input")
@@ -53,9 +54,9 @@ done <<<"$files"
 [ -z "$file" ] && exit 0
 
 doc="${file%%/app/*}/$rules"
-[ -f "$doc" ] || doc="$project/src/$rules"
+[ -f "$doc" ] || doc="$project/$rules"
 if [ ! -f "$doc" ]; then
-  echo "ui-conventions hook: $rules not found in the edited checkout or in $project/src, no UI rules injected" >&2
+  echo "ui-conventions hook: $rules not found in the edited checkout or in $project, no UI rules injected" >&2
   exit 0
 fi
 

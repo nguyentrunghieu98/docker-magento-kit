@@ -29,7 +29,7 @@ Repeat until no task is ready and none is in progress:
   alone. Start a role by its agent type when the harness has one (Claude Code, `.claude/agents`),
   otherwise read `.agents/agents/<role>.md`, drop the frontmatter, and pass the body plus the task
   details to the subagent tool.
-- Give each worker everything it needs, it does not see this conversation: the project root, the
+- Give each worker everything it needs, it does not see this conversation: the Docker root, the
   checkout name and path, the task file path, the test-runner output, and the full text of the
   project references the task needs.
 - On `TASK_COMPLETE`: check the task file has every requirement ticked with a real result line,

@@ -29,17 +29,18 @@ Không có installer, không có file profile, không có cấu hình sinh tự 
 
 ## Bức tranh
 
-Kit là một cây nguồn. `sync` chép nó vào một Docker root. Dự án giữ sự thật của mình trong
-`AGENTS.md` và các reference.
+Kit là một cây nguồn. `sync` chép nó vào một Docker root: công cụ Docker nằm ở gốc, lớp agent nằm
+trong `src/`, tức checkout chính. `src/` là repository Git và là thư mục mở harness. Dự án giữ sự
+thật của mình ở đó, trong `AGENTS.md` và các reference.
 
 ```text
 kit                                  Docker root
 ├── sync ───────────────────────────▶
 ├── docker/  ───────────────────────▶ bin/wt, bin/test/unit, bin/phpcs, compose.worktree.yaml
-└── agents/  ───────────────────────▶ .agents/skills, .agents/agents, .agents/hooks
+└── agents/  ───────────────────────▶ src/.agents/skills, src/.agents/agents, src/.agents/hooks
 
 Docker root                          Git
-├── src/            checkout chính ─▶ repository Magento, nhánh master
+├── src/            checkout chính ─▶ repository Magento, nhánh master, gốc agent
 ├── .worktrees/     mỗi nhánh một thư mục
 └── .active-src ──▶ một trong số đó  thứ stack mount tại /var/www/html
 ```
@@ -61,8 +62,9 @@ Vài từ dùng trong tài liệu:
 
 | Từ | Nghĩa |
 |---|---|
-| Docker root | thư mục có `compose.yaml`. Đây không phải repository Git |
+| Docker root | thư mục có `compose.yaml` và `bin/`. Đây không phải repository Git |
 | checkout | `src/` hoặc một thư mục trong `.worktrees/`. Một gốc Magento trên nhánh riêng |
+| gốc agent | `src/`, tức checkout chính. Harness mở ở đây, và `AGENTS.md`, `.agents/`, `.claude/`, `.scratch/` nằm ở đây |
 | checkout đang phục vụ | checkout mà `.active-src` trỏ tới. Stack chạy chính nó |
 
 ## Dựng một dự án
@@ -96,8 +98,10 @@ git -C /path/to/docker-root/src config wt.into origin/staging   # nhánh đích 
   `--xdebug` chạy trên `src/`, không phải checkout đang phục vụ. `--info` nói rõ điều đó.
 - `wt.from` và `wt.into` nằm trong `src/.git/config`, không commit, thay theo từng lệnh bằng
   `--from` và `--into`. Thiếu cả hai thì `bin/wt` dừng và chỉ cách đặt.
+- `bin/` vẫn nằm ở Docker root, trên gốc agent một cấp: từ `src/` các lệnh bên dưới là
+  `../bin/wt`, `../bin/test/unit` và tương tự.
 
-Lớp dự án là phần bạn viết:
+Lớp dự án là phần bạn viết, trong `src/`:
 
 ```text
 CLAUDE.md                -> AGENTS.md
@@ -108,6 +112,26 @@ project/agent/references/architecture.md    bố cục, lệnh, checkout
 project/agent/references/testing.md         lệnh test, ma trận gate, bằng chứng
 project/agent/references/code-standards.md  chuẩn code, các điểm review
 ```
+
+Giữ lớp này ngoài Git bằng `src/.gitignore` hoặc `src/.git/info/exclude`, trừ khi dự án commit nó.
+
+Worktree không mang theo file bị ignore, nên `bin/wt create`, `prepare` và `use` link lớp của `src/`
+vào worktree. Harness mở trong worktree khi đó có cùng chỉ dẫn, skill, role, hook, reference và plan
+như khi mở ở `src/`:
+
+```text
+.worktrees/feat-x/AGENTS.md  -> <Docker root>/src/AGENTS.md
+.worktrees/feat-x/.agents    -> <Docker root>/src/.agents
+.worktrees/feat-x/.scratch   -> <Docker root>/src/.scratch
+```
+
+- Được link khi `src/` có: `AGENTS.md`, `CLAUDE.md`, `.agents`, `.claude`, `.codex`, `.omp`,
+  `project`, `.scratch`.
+- Dự án thêm đường dẫn riêng, mỗi lần một cái: `git -C src config --add wt.link docs`.
+- Chỉ có một bản dùng chung: sửa hay xóa qua link là đổi file trong `src/`.
+- Đường dẫn worktree đã có sẵn thì để yên, nên nhánh track bản riêng vẫn giữ bản đó.
+- Link mà Git không ignore được thêm vào `info/exclude`, nên không bao giờ bị stage.
+- Link là đường dẫn tuyệt đối. Sau khi chuyển Docker root, xóa chúng rồi chạy `bin/wt prepare <name>`.
 
 Harness có agent type (Claude Code `.claude/agents`, OMP `.omp/agents`) gọi role theo tên. Harness
 khác đọc `.agents/agents/<role>.md`, bỏ frontmatter rồi đưa phần thân cho subagent tool.
@@ -206,10 +230,13 @@ Edit hoặc Write ─▶ ui-conventions.sh <đường dẫn quy tắc>  file gia
 Mở phiên ────────▶ kit-drift.sh <đường dẫn kit> [skip…]  lệch kit? một dòng kèm skill cần chạy
 ```
 
-`ui-conventions.sh` đọc file quy tắc trong checkout đang sửa, nếu không có thì trong `src/`, và cảnh
-báo ra stderr khi thiếu. `guard-paths.sh` chặn ghi vào `vendor/`, `generated/`, `pub/static/`, vì thư
-mục build không bao giờ sửa tay. `kit-drift.sh` im lặng khi dự án khớp, khi đường dẫn kit sai, và khi
-sync báo lỗi cách dùng.
+Hook tìm `src/` từ chính vị trí của nó, `src/.agents/hooks/`, nên trả lời giống nhau khi harness mở ở
+`src/` và khi mở trong worktree. `ui-conventions.sh` đọc file quy tắc trong checkout đang sửa, nếu
+không có thì trong `src/`, và cảnh báo ra stderr khi thiếu. `guard-paths.sh` chặn ghi vào `vendor/`,
+`generated/`, `pub/static/`, vì thư mục build không bao giờ sửa tay, và nhắc khi ghi vào một file
+trong `src/` mà Git không ignore lúc `src/` đang ở `master` hoặc `staging`. `kit-drift.sh` chạy
+`sync` với thư mục cha của `src/`, im lặng khi dự án khớp, khi đường dẫn kit sai, và khi sync báo lỗi
+cách dùng.
 
 ```json
 {
@@ -266,3 +293,14 @@ bash tests/run-all.sh
 ```
 
 Test cần bash, git và jq. Docker được thay bằng bản giả ghi lại lời gọi.
+
+## Tham khảo từ
+
+Lớp quy trình lấy hình mẫu từ [hcf](https://github.com/markshust/hcf) của
+[Mark Shust](https://github.com/markshust), giấy phép MIT, Copyright (c) Devtomic LLC: kế hoạch chia
+thành task với requirement là tên test, phê bình trước khi viết code, và mỗi bước một role. Hai hook
+theo hai mẫu nhỏ của hcf, một dòng nhắc lúc mở phiên và một lần chặn ở PreToolUse. Kit giữ phần nhỏ
+và bỏ lại tám hook point, cơ chế enrollment theo agent và schema plan của hcf.
+
+Stack Docker là [markshust/docker-magento](https://github.com/markshust/docker-magento), cũng của
+Mark Shust. Hai file overlay là bản sửa từ đó, như `NOTICE` ghi.

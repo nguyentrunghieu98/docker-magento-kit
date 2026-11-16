@@ -71,7 +71,8 @@ Usage: bin/wt <command> [arguments]
   use <name|path|branch>        Make the single stack serve that worktree
   status                        Show the active worktree and the container state
   path <name|path|branch>       Print the absolute path of the worktree
-  prepare <name|path|branch>    Copy the core files .gitignore misses into the worktree
+  prepare <name|path|branch>    Copy the core files .gitignore misses into the worktree and link
+                                the agent layer of src/ (plus git -C src config --get-all wt.link)
   shell <name|path|branch>      Open a shell in the worktree
   run <name> <command...>       Run a command for that checkout in a throwaway container: same
                                 image as phpfpm, no network, checkout and shared vendor/ read-only,
@@ -260,7 +261,40 @@ repoint_active() {
   fi
 }
 
+# The agent layer lives in src/, the main checkout, where a harness is opened. A worktree gets a
+# symlink to each entry, so a harness opened in the worktree has the same instructions, skills,
+# roles, hooks, references and plans: one copy, shared. Project paths are added with
+# `git -C src config --add wt.link <path>`. An entry src/ lacks is skipped, and so is one the
+# worktree already has (a branch that tracks its own copy keeps it). A link Git would not ignore
+# is added to info/exclude, so it is never staged.
+AGENT_LINKS=(AGENTS.md CLAUDE.md .agents .claude .codex .omp project .scratch)
+
+link_agent_layer() {
+  local dest="$1" link exclude links=("${AGENT_LINKS[@]}")
+  [[ "$dest" != "$MAIN_DIR" ]] || return 0
+  exclude="$(git -C "$dest" rev-parse --path-format=absolute --git-path info/exclude 2>/dev/null)" || return 0
+  while IFS= read -r link; do
+    case "$link" in
+      '') ;;
+      /* | .. | ../* | */.. | */../*) warn "wt.link $link is not a path inside src/, skipped" ;;
+      *) links+=("${link%/}") ;;
+    esac
+  done < <(git -C "$MAIN_DIR" config --get-all wt.link 2>/dev/null || true)
+
+  for link in "${links[@]}"; do
+    [[ -e "$MAIN_DIR/$link" ]] || continue
+    [[ -e "$dest/$link" || -L "$dest/$link" ]] && continue
+    mkdir -p "$dest/$(dirname "$link")"
+    ln -s "$MAIN_DIR/$link" "$dest/$link"
+    if ! git -C "$dest" check-ignore -q -- "$link"; then
+      mkdir -p "$(dirname "$exclude")"
+      printf '/%s\n' "$link" >> "$exclude"
+    fi
+  done
+}
+
 prepare_local_files() {
+  link_agent_layer "$1"
   local dest="$1" dir file copied=0
   for dir in "${RUNTIME_DIRS[@]}" "${SHARED_DIRS[@]}"; do
     mkdir -p "$dest/$dir"

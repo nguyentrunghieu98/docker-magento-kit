@@ -1,6 +1,6 @@
 # Plan and task format
 
-A plan lives in `.scratch/<feature>/` at the project root. It is working state: never committed.
+A plan lives in `.scratch/<feature>/` at the agent root. It is working state: never committed.
 After the merge request is merged, delete `spec.md`, `critique.md` and `issues/`, and leave
 `evidence/` where it is.
 

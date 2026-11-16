@@ -322,6 +322,26 @@ STUB
   chmod 755 "$ROOT/bin/magento"
 }
 
+# A hook finds the main checkout from its own location, so a test installs it where sync
+# does: $SANDBOX/project is the Docker root, src/ the main checkout. Sets ROOT, PROJECT, HOOK.
+hook_project_new() {
+  sandbox_new
+  ROOT="$SANDBOX/project"
+  PROJECT="$ROOT/src"
+  mkdir -p "$PROJECT/.agents/hooks"
+  cp -p "$REPO_ROOT/agents/hooks/$1" "$PROJECT/.agents/hooks/$1"
+  HOOK="$PROJECT/.agents/hooks/$1"
+}
+
+# A worktree that links .agents of the main checkout, the way bin/wt does. Sets WORKTREE, and
+# points HOOK at the hook as a harness opened in the worktree reaches it.
+hook_worktree_new() {
+  WORKTREE="$ROOT/.worktrees/feat-x"
+  mkdir -p "$WORKTREE"
+  ln -s "$PROJECT/.agents" "$WORKTREE/.agents"
+  HOOK="$WORKTREE/.agents/hooks/$(basename "$HOOK")"
+}
+
 # Run every defined test_* function, in alphabetical order.
 run_tests() {
   local fn
