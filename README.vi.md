@@ -22,7 +22,9 @@ Không có installer, không có file profile, không có cấu hình sinh tự 
 | `docker/conf/php/opcache.ini` | Cấu hình OPcache cho môi trường dev |
 | `agents/skills/` | Bốn skill: `plan-create`, `plan-orchestrate`, `project-update`, `project-setup` |
 | `agents/agents/` | Năm role: `code-researcher`, `devils-advocate`, `tdd-worker`, `standards-enforcer`, `diff-reviewer` |
-| `agents/hooks/ui-conventions.sh` | Hook cho agent, chèn quy tắc UI của dự án khi sửa file giao diện |
+| `agents/hooks/ui-conventions.sh` | Chèn quy tắc UI của dự án khi sửa file giao diện |
+| `agents/hooks/guard-paths.sh` | Chặn ghi vào thư mục build, nhắc khi `src/` đang ở nhánh bảo vệ |
+| `agents/hooks/kit-drift.sh` | Nhắc một dòng khi mở phiên nếu dự án đang lệch kit |
 
 ## Thêm vào một Docker root
 
@@ -97,22 +99,42 @@ bin/test/unit --coverage <path>                      # báo cáo HTML trong dev/
   dùng chung đang theo) thì dừng.
 - Exit 2 là lỗi cách dùng hoặc thiếu điều kiện, mã khác là mã thoát của test.
 
-## Hook quy tắc UI
+## Hook
+
+Ba hook, mỗi hook là một script nhận tham số của riêng nó, không cần cấu hình thêm.
+
+`ui-conventions.sh <đường dẫn file quy tắc>` chèn quy tắc UI của dự án khi sửa file giao diện. Tham
+số tính từ gốc checkout: hook đọc file đó trong checkout đang sửa, nếu không có thì đọc trong `src/`,
+và cảnh báo ra stderr khi thiếu.
+
+`guard-paths.sh` chặn ghi vào `vendor/`, `generated/`, `pub/static/`, và nhắc khi ghi vào `src/`
+trong lúc `src/` đang ở `master` hoặc `staging`. Thư mục build không bao giờ sửa tay, và `src/` phải
+sạch trên nhánh bảo vệ.
+
+`kit-drift.sh <đường dẫn kit> [đường dẫn skip...]` chạy `sync` ở chế độ báo cáo lúc mở phiên và thêm
+một dòng khi dự án đang lệch kit. Im lặng khi dự án khớp, khi đường dẫn kit sai, và khi sync báo lỗi
+cách dùng.
 
 ```json
 {
   "hooks": {
     "PreToolUse": [{
       "matcher": "Edit|Write|MultiEdit",
-      "hooks": [{ "type": "command", "timeout": 10,
-        "command": "\"$CLAUDE_PROJECT_DIR\"/.agents/hooks/ui-conventions.sh docs/agents/ui-conventions.md" }]
+      "hooks": [
+        { "type": "command", "timeout": 10,
+          "command": "\"$CLAUDE_PROJECT_DIR\"/.agents/hooks/ui-conventions.sh docs/agents/ui-conventions.md" },
+        { "type": "command", "timeout": 10,
+          "command": "\"$CLAUDE_PROJECT_DIR\"/.agents/hooks/guard-paths.sh" }
+      ]
+    }],
+    "SessionStart": [{
+      "matcher": "startup|resume|clear",
+      "hooks": [{ "type": "command", "timeout": 15,
+        "command": "\"$CLAUDE_PROJECT_DIR\"/.agents/hooks/kit-drift.sh /path/to/kit compose.worktree.yaml" }]
     }]
   }
 }
 ```
-
-Tham số là file quy tắc, tính từ gốc Magento. Hook đọc file đó trong checkout đang sửa, nếu không có
-thì đọc trong `src/`, và cảnh báo ra stderr khi thiếu.
 
 ## Test
 

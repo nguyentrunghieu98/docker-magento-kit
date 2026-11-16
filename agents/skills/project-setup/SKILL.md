@@ -22,8 +22,9 @@ and what changes the commands (how commands run, the exact test command, the gat
   - `CLAUDE.md -> AGENTS.md`
   - `.claude/skills -> ../.agents/skills`
   - `.claude/agents/`: one symlink per role to `../../.agents/agents/<role>.md`
-- Wire the hook to the rules file: `.claude/settings.json` and `.codex/hooks.json` run
-  `.agents/hooks/ui-conventions.sh <rules path relative to the checkout>`. A harness with no hook
+- Wire the hooks: `.claude/settings.json` runs `.agents/hooks/ui-conventions.sh <rules path>` and
+  `.agents/hooks/guard-paths.sh` on every write, plus `.agents/hooks/kit-drift.sh <kit path>
+  [skip path...]` at session start. `.codex/hooks.json` runs the first two. A harness with no hook
   system reads the rules file through `AGENTS.md`, nothing to wire.
 
 ## 3. Write AGENTS.md

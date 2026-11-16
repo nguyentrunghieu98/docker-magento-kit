@@ -22,7 +22,9 @@ There is no installer, no profile file and no generated configuration.
 | `docker/conf/php/opcache.ini` | OPcache settings for development |
 | `agents/skills/` | Four skills: `plan-create`, `plan-orchestrate`, `project-update`, `project-setup` |
 | `agents/agents/` | Five roles: `code-researcher`, `devils-advocate`, `tdd-worker`, `standards-enforcer`, `diff-reviewer` |
-| `agents/hooks/ui-conventions.sh` | Agent hook that injects the project's UI rules when a UI file is edited |
+| `agents/hooks/ui-conventions.sh` | Injects the project's UI rules when an edit targets a UI file |
+| `agents/hooks/guard-paths.sh` | Denies a write into build output, reminds when `src/` is on a protected branch |
+| `agents/hooks/kit-drift.sh` | One session-start reminder when the project is behind the kit |
 
 ## Add it to a Docker root
 
@@ -100,22 +102,42 @@ bin/test/unit --coverage <path>                      # HTML report in dev/tests/
   (the lock the shared `vendor/` follows) stops the run.
 - Exit code 2 is a usage or prerequisite error, anything else is the tests' exit code.
 
-## UI rules hook
+## Hooks
+
+Three hooks, each one script that takes its own arguments and needs no other configuration.
+
+`ui-conventions.sh <rules path>` injects the project's UI rules when an edit targets a UI file. The
+argument is the rules file relative to the checkout root: the hook reads it from the edited checkout,
+else from `src/`, and warns on stderr when it is missing.
+
+`guard-paths.sh` denies a write into `vendor/`, `generated/` or `pub/static/`, and reminds when a
+write lands in `src/` while `src/` is on `master` or `staging`. Build output is never edited by hand,
+and `src/` stays clean on the protected branches.
+
+`kit-drift.sh <kit path> [skip path...]` runs the kit's `sync` in report mode at session start and
+adds one line when the project is behind. It stays silent when the project is in sync, when the kit
+path is wrong and on a usage error.
 
 ```json
 {
   "hooks": {
     "PreToolUse": [{
       "matcher": "Edit|Write|MultiEdit",
-      "hooks": [{ "type": "command", "timeout": 10,
-        "command": "\"$CLAUDE_PROJECT_DIR\"/.agents/hooks/ui-conventions.sh docs/agents/ui-conventions.md" }]
+      "hooks": [
+        { "type": "command", "timeout": 10,
+          "command": "\"$CLAUDE_PROJECT_DIR\"/.agents/hooks/ui-conventions.sh docs/agents/ui-conventions.md" },
+        { "type": "command", "timeout": 10,
+          "command": "\"$CLAUDE_PROJECT_DIR\"/.agents/hooks/guard-paths.sh" }
+      ]
+    }],
+    "SessionStart": [{
+      "matcher": "startup|resume|clear",
+      "hooks": [{ "type": "command", "timeout": 15,
+        "command": "\"$CLAUDE_PROJECT_DIR\"/.agents/hooks/kit-drift.sh /path/to/kit compose.worktree.yaml" }]
     }]
   }
 }
 ```
-
-The argument is the rules file relative to the Magento root. The hook reads it from the
-edited checkout, else from `src/`, and warns on stderr when it is missing.
 
 ## Tests
 
