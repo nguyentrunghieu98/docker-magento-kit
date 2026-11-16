@@ -65,7 +65,7 @@ bin/test/unit --coverage <path>                      # báo cáo HTML trong dev/
   `vendor/bin/phpunit` / `vendor/bin/paratest -p ${TEST_PROCESSES:-2}` với `dev/tests/unit/phpunit.xml.dist`.
 - `--parallel` mà không có ParaTest thì exit 2 kèm lệnh cài. Không bao giờ tự lùi về serial.
 - `--wt` luôn tạo container mới: cùng image với `phpfpm`, không mạng, checkout và `vendor/` dùng chung
-  ở chế độ chỉ đọc, tmpfs cho `generated/`, `var/` và `dev/tests/unit/tmp`. Nhiều lượt chạy cùng lúc
+  ở chế độ chỉ đọc, tmpfs cho `generated/`, `var/` và `dev/tests/unit`. Nhiều lượt chạy cùng lúc
   không dùng chung các thư mục này. `composer.lock` khác lock của checkout đang active (lock mà `vendor/`
   dùng chung đang theo) thì dừng.
 - Exit 2 là lỗi cách dùng hoặc thiếu điều kiện, mã khác là mã thoát của test.

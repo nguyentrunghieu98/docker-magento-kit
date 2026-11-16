@@ -75,7 +75,7 @@ Usage: bin/wt <command> [arguments]
   shell <name|path|branch>      Open a shell in the worktree
   run <name> <command...>       Run a command for that checkout in a throwaway container: same
                                 image as phpfpm, no network, checkout and shared vendor/ read-only,
-                                tmpfs for generated/, var/, dev/tests/unit/tmp. Exit 2 on a
+                                tmpfs for generated/, var/, dev/tests/unit. Exit 2 on a
                                 missing prerequisite, otherwise the command's exit code
   remove <name>                 Delete a clean worktree in .worktrees/ that is not active
   adopt <path>                  Move a misplaced worktree to .worktrees/<dir> then prepare
@@ -557,7 +557,8 @@ run_cmd() {
   if [[ "$target" != "$active" ]] && ! cmp -s "$active/composer.lock" "$target/composer.lock"; then
     fail2 "composer.lock of $name differs from the active checkout $(alias_for "$active"), so the shared vendor/ does not match. Run: bin/wt use $name && bin/composer install"
   fi
-  [[ -d "$MAIN_DIR/dev/tests/unit/tmp" ]] || fail2 'Missing src/dev/tests/unit/tmp, is src/ a Magento root?'
+  [[ -f "$MAIN_DIR/dev/tests/unit/phpunit.xml.dist" ]] \
+    || fail2 'Missing src/dev/tests/unit/phpunit.xml.dist, is src/ a Magento root?'
 
   cid="$(compose ps -q phpfpm 2>/dev/null | head -n1)" || cid=''
   [[ -n "$cid" ]] || fail2 'phpfpm is not running, start the stack first: bin/start'
@@ -571,16 +572,27 @@ run_cmd() {
     done
   fi
 
+  # dev/tests/unit is written to by PHPUnit (result cache), Allure and the test framework
+  # (tmp/, var/). It is a tmpfs filled from a read-only copy, so the run never needs a
+  # version-specific flag and never writes into the shared dev/. In that copy, Magento's
+  # allure.config.php gets one results directory per PHP process: its setup hook deletes
+  # every file in the directory, which breaks a parallel ParaTest worker.
+  # shellcheck disable=SC2016 # $@ and the PHP string belong to the container shell
+  local setup='cp -R /opt/wt/unit-tests/. /var/www/html/dev/tests/unit/ \
+    && f=/var/www/html/dev/tests/unit/allure/allure.config.php \
+    && { [ ! -f "$f" ] || sed -i "s#/../var/allure-results'"'"';#/../var/allure-results/'"'"' . getmypid();#" "$f"; } \
+    && exec "$@"'
   exec docker run --rm --network none \
     --user "$(id -u):$(id -g)" \
     -e HOME=/tmp -e COMPOSER_HOME=/tmp/composer \
     "${mounts[@]}" \
+    -v "$MAIN_DIR/dev/tests/unit:/opt/wt/unit-tests:ro" \
     --tmpfs /tmp:mode=1777 \
     --tmpfs /var/www/html/generated:mode=1777 \
     --tmpfs /var/www/html/var:mode=1777 \
-    --tmpfs /var/www/html/dev/tests/unit/tmp:mode=1777 \
+    --tmpfs /var/www/html/dev/tests/unit:mode=1777 \
     -w /var/www/html \
-    "$image" "$@"
+    "$image" sh -c "$setup" sh "$@"
 }
 
 # --------------------------------------------------------------------------

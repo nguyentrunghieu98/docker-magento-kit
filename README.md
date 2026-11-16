@@ -66,7 +66,7 @@ bin/test/unit --coverage <path>                      # HTML report in dev/tests/
   `dev/tests/unit/phpunit.xml.dist`.
 - `--parallel` without ParaTest exits 2 with the install command. It never falls back to serial.
 - `--wt` always uses a new container: same image as `phpfpm`, no network, checkout and shared
-  `vendor/` read-only, tmpfs for `generated/`, `var/` and `dev/tests/unit/tmp`. Several runs at
+  `vendor/` read-only, tmpfs for `generated/`, `var/` and `dev/tests/unit`. Several runs at
   once never share those directories. A `composer.lock` that differs from the active checkout's
   (the lock the shared `vendor/` follows) stops the run.
 - Exit code 2 is a usage or prerequisite error, anything else is the tests' exit code.

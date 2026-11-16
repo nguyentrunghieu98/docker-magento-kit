@@ -11,7 +11,7 @@
 #
 # Without --wt the tests run in the shared phpfpm on the active checkout (for a human).
 # With --wt (agents always use it) every run goes through `bin/wt run`: a throwaway
-# container with its own tmpfs for generated/, var/ and dev/tests/unit/tmp, so parallel
+# container with its own tmpfs for generated/, var/ and dev/tests/unit, so parallel
 # runs never share those directories and no lock is needed.
 #
 # Exit codes: 2 usage or prerequisite, otherwise the exit code of the tests.
@@ -99,9 +99,11 @@ if [[ "$info" -eq 1 ]]; then
   printf 'phpunit=%s\n' "$(phpunit_version)"
   if has_paratest; then printf 'paratest=yes\n'; else printf 'paratest=missing\n'; fi
   printf 'processes=%s\n' "$PROCESSES"
-  printf 'serial=%s\n' "${serial_cmd[*]% --}"
+  line="${serial_cmd[*]}"
+  printf 'serial=%s\n' "${line% --}"
   if [[ ${#parallel_cmd[@]} -gt 0 ]]; then
-    printf 'parallel=%s\n' "${parallel_cmd[*]% --}"
+    line="${parallel_cmd[*]}"
+    printf 'parallel=%s\n' "${line% --}"
   else
     printf 'parallel=unavailable\n'
   fi
@@ -135,8 +137,6 @@ if [[ "$parallel" -eq 1 ]]; then
   cmd=("${parallel_cmd[@]}")
 else
   cmd=("${serial_cmd[@]}")
-  # The worktree is read-only in the container: do not write .phpunit.result.cache.
-  [[ "$mode" == container ]] && cmd+=(--do-not-cache-result)
   [[ -z "$filter" ]] || cmd+=(--filter "$filter")
 fi
 cmd+=("$path")

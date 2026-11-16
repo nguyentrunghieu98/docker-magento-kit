@@ -58,6 +58,7 @@ new_root() {
     "$SRC/bin" "$SRC/lib" "$SRC/setup" "$SRC/phpserver"
   printf "<?php\n\$v = new VersionId('9.6.20', __DIR__);\n" > "$SRC/vendor/phpunit/phpunit/src/Runner/Version.php"
   : > "$SRC/vendor/bin/phpunit"
+  : > "$SRC/dev/tests/unit/phpunit.xml.dist"
   [[ "$para" == paratest ]] && : > "$SRC/vendor/bin/paratest"
 
   mkdir -p "$ROOT/.worktrees"
@@ -91,6 +92,8 @@ test_info_with_scripts_and_paratest() {
   assert_contains 'processes=2' '--info shows the default process count'
   assert_contains 'serial=composer test:unit' '--info picks the composer script for serial'
   assert_contains 'parallel=composer test:unit:parallel' '--info picks the composer script for parallel'
+  assert_equals 'serial=composer test:unit' "$(grep '^serial=' <<< "$OUTPUT")" '--info prints the serial command without the trailing --'
+  assert_equals 'parallel=composer test:unit:parallel' "$(grep '^parallel=' <<< "$OUTPUT")" '--info prints the parallel command without the trailing --'
   assert_equals '' "$(calls)" '--info does not call docker'
 }
 
@@ -144,8 +147,13 @@ test_wt_runs_in_a_throwaway_container() {
   assert_contains "-v $SRC/vendor:/var/www/html/vendor:ro" 'the shared vendor is mounted read-only' "$c"
   assert_contains '--tmpfs /var/www/html/generated' 'generated is a tmpfs' "$c"
   assert_contains '--tmpfs /var/www/html/var' 'var is a tmpfs' "$c"
-  assert_contains '--tmpfs /var/www/html/dev/tests/unit/tmp' 'the unit tmp dir is a tmpfs' "$c"
-  assert_contains 'shop/magento-php:8.2-fpm composer test:unit -- --do-not-cache-result --filter testBar app/code/Shop' 'same image as phpfpm, serial script without result cache' "$c"
+  assert_contains '--tmpfs /var/www/html/dev/tests/unit' 'dev/tests/unit is a tmpfs (result cache, Allure, tmp)' "$c"
+  assert_contains "-v $SRC/dev/tests/unit:/opt/wt/unit-tests:ro" 'the unit test config is mounted read-only aside' "$c"
+  assert_contains 'cp -R /opt/wt/unit-tests/. /var/www/html/dev/tests/unit/' 'the container copies it into the tmpfs first' "$c"
+  assert_contains "allure-results/' . getmypid()" 'the copy gives each PHP process its own Allure directory (ParaTest workers)' "$c"
+  assert_contains 'shop/magento-php:8.2-fpm sh -c' 'same image as phpfpm' "$c"
+  assert_contains 'composer test:unit -- --filter testBar app/code/Shop' 'serial runs the composer script' "$c"
+  assert_not_contains 'do-not-cache-result' 'no PHPUnit-specific cache flag is needed' "$c"
   assert_not_contains 'exec -T phpfpm' '--wt never runs inside the shared phpfpm' "$c"
   unit --wt main --parallel app/code/Shop
   assert_contains "-v $SRC:/var/www/html:ro" '--wt main also uses a container (one tmpfs per run)' "$(calls)"
@@ -205,7 +213,7 @@ test_phpcs_active_and_wt() {
   local c
   c="$(calls)"
   assert_contains "-v $WT:/var/www/html:ro" 'phpcs --wt mounts the worktree read-only' "$c"
-  assert_contains 'shop/magento-php:8.2-fpm vendor/bin/phpcs --standard=Magento2 --extensions=php,phtml --error-severity=10 --ignore-annotations --report=summary app/code/Shop' 'phpcs --wt runs in the throwaway container' "$c"
+  assert_contains 'vendor/bin/phpcs --standard=Magento2 --extensions=php,phtml --error-severity=10 --ignore-annotations --report=summary app/code/Shop' 'phpcs --wt runs in the throwaway container' "$c"
   run_in "$ROOT" bin/phpcs --wt
   assert_status 2 'phpcs --wt without a name exits 2'
 }
