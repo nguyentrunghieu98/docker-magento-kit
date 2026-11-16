@@ -36,7 +36,7 @@ is opened in. The project keeps its own facts there, in `AGENTS.md` and its refe
 ```text
 kit                                  Docker root
 ├── sync ───────────────────────────▶
-├── docker/  ───────────────────────▶ bin/wt, bin/test/unit, bin/test/ui-regression, bin/phpcs, compose.worktree.yaml
+├── docker/  ───────────────────────▶ bin/wt, bin/test/unit, bin/phpcs, compose.worktree.yaml
 └── agents/  ───────────────────────▶ src/.agents/skills, src/.agents/agents, src/.agents/hooks
 
 Docker root                          Git
@@ -234,11 +234,6 @@ flowchart TD
 - A screenshot passes when it shows what the requirement says at that width, the page does not
   scroll sideways, and the console has no error the page did not have before the change.
 - Evidence belongs to the last revision: any later edit makes every screenshot stale.
-- Beyond the requirement, a project may keep a Playwright Test regression suite in
-  `dev/tests/ui-regression/`: one `toHaveScreenshot()` spec per key page and width, compared with
-  committed baselines. `bin/test/ui-regression` runs it in the official Playwright image of the
-  version the suite pins, on the served checkout, with one worker. It runs for a change to shared
-  styles or layout. An agent never updates a baseline: the user approves it.
 
 ## Unit tests
 
@@ -322,7 +317,6 @@ project is in sync, when the kit path is wrong and on a usage error.
 | `docker/compose.worktree.yaml` | Overlay that mounts `.active-src`, the served checkout |
 | `docker/bin/docker-compose` | Upstream file plus one block that loads the overlay when `.active-src` is a symlink |
 | `docker/bin/test/unit` | The one unit test runner: serial, `--parallel`, `--wt`, `--xdebug`, `--coverage` |
-| `docker/bin/test/ui-regression` | The screenshot suite runner: Playwright Test in the official image of the pinned version, served checkout, one worker, `--update` |
 | `docker/bin/phpcs` | Upstream file plus `--wt <name>` |
 | `docker/bin/watch` | Frontend watcher that follows `.active-src` |
 | `docker/conf/php/opcache.ini` | OPcache settings for development |
