@@ -111,6 +111,7 @@ AGENTS.md                                   nguồn duy nhất: ranh giới, l�
 project/agent/references/architecture.md    bố cục, lệnh, checkout
 project/agent/references/testing.md         lệnh test, ma trận gate, bằng chứng
 project/agent/references/code-standards.md  chuẩn code, các điểm review
+project/agent/references/ui-testing.md      lệnh build lại, trang, đăng nhập, độ rộng, ảnh chụp
 ```
 
 Giữ lớp này ngoài Git bằng `src/.gitignore` hoặc `src/.git/info/exclude`, trừ khi dự án commit nó.
@@ -135,7 +136,8 @@ như khi mở ở `src/`:
 
 Harness có agent type (Claude Code `.claude/agents`, OMP `.omp/agents`) gọi role theo tên. Harness
 khác đọc `.agents/agents/<role>.md`, bỏ frontmatter rồi đưa phần thân cho subagent tool.
-`agents/skills/project-setup/references/examples/magento/` là ví dụ cho ba file references.
+`agents/skills/project-setup/references/examples/magento/` là ví dụ cho bốn file references và file
+quy tắc UI mà hook chèn vào.
 
 ## Vòng lặp hằng ngày
 
@@ -177,7 +179,7 @@ flowchart TD
   C --> U{"người dùng duyệt?"}
   U -->|"chưa"| P
   U -->|"rồi"| B["bin/wt create nhánh type/slug"]
-  B --> O["plan-orchestrate: task sẵn sàng, mỗi task một tdd-worker"]
+  B --> O["plan-orchestrate: task sẵn sàng, mỗi task một tdd-worker, task UI dùng ui-worker"]
   O --> G["gate cho mọi bề mặt bị đụng"]
   G --> DR["diff-reviewer"]
   DR --> M["commit, merge request, người triển khai"]
@@ -195,8 +197,41 @@ flowchart TD
 | `code-researcher` | trả lời một câu hỏi kèm bằng chứng `path:line`, chỉ đọc |
 | `devils-advocate` | phê bình kế hoạch trước khi có code, sửa lại task file |
 | `tdd-worker` | làm một task file, RED rồi GREEN cho từng requirement |
+| `ui-worker` | làm một task UI, mỗi requirement `ui:` một ảnh chụp |
 | `standards-enforcer` | sửa chuẩn code mà không đổi hành vi, mặc định tắt |
 | `diff-reviewer` | review diff trước khi commit, chỉ đọc |
+
+## Test UI
+
+Thứ người dùng nhìn thấy là requirement `ui:`, chứng minh bằng ảnh chụp, không bao giờ bằng việc
+đọc code. Mỗi task UI một `ui-worker`, chạy một mình vì một lúc chỉ phục vụ một checkout.
+
+```mermaid
+flowchart TD
+  T["Task UI: ui: trang @ độ rộng | điều phải thấy"] --> S{"checkout đang phục vụ?"}
+  S -->|"chưa"| P["TASK_FAILED: prerequisite, hỏi trước khi bin/wt use"]
+  S -->|"rồi"| B["BEFORE: mở trang, ghi mốc lỗi console sẵn có"]
+  B --> C["CHANGE: chỉ file view, mở rộng trước ghi đè sau"]
+  C --> R["BUILD: dòng build lại của ui-testing.md theo loại file"]
+  R --> L["LOOK: chụp ảnh ở độ rộng, mở ảnh ra xem"]
+  L --> K{"thấy đúng, không cuộn ngang, không lỗi console mới?"}
+  K -->|"chưa, dưới 3 lần"| C
+  K -->|"chưa, 3 lần"| F["TASK_FAILED: requirement và điều đang thấy"]
+  K -->|"rồi"| X["tick kèm evidence/NN-req-width.png"]
+  X --> N{"còn requirement?"}
+  N -->|"còn"| B
+  N -->|"hết"| A["chụp lại mọi ảnh sau lần sửa cuối, gate PHPCS"]
+  A --> D["TASK_COMPLETE"]
+  D --> O["plan-orchestrate xem các ảnh"]
+  O --> V["diff-reviewer mở từng ảnh, mới hơn lần sửa cuối"]
+```
+
+- Bảng build lại, trang, đăng nhập, độ rộng và tiêu chí đạt nằm trong
+  `project/agent/references/ui-testing.md` của dự án. Quy tắc nền tảng mà hook chèn vào nằm trong
+  file quy tắc UI (`docs/agents/ui-conventions.md` ở ví dụ).
+- Ảnh đạt khi cho thấy đúng điều requirement nói ở độ rộng đó, trang không cuộn ngang, và console
+  không có lỗi mà trang chưa có trước khi sửa.
+- Bằng chứng thuộc về bản sửa cuối: sửa thêm là mọi ảnh cũ hết hiệu lực.
 
 ## Unit test
 
@@ -283,7 +318,7 @@ cách dùng.
 | `docker/bin/watch` | Watcher frontend đi theo `.active-src` |
 | `docker/conf/php/opcache.ini` | Cấu hình OPcache cho môi trường dev |
 | `agents/skills/` | Bốn skill: `plan-create`, `plan-orchestrate`, `project-update`, `project-setup` |
-| `agents/agents/` | Năm role: `code-researcher`, `devils-advocate`, `tdd-worker`, `standards-enforcer`, `diff-reviewer` |
+| `agents/agents/` | Sáu role: `code-researcher`, `devils-advocate`, `tdd-worker`, `ui-worker`, `standards-enforcer`, `diff-reviewer` |
 | `agents/hooks/` | Ba hook: `ui-conventions.sh`, `guard-paths.sh`, `kit-drift.sh` |
 
 ## Test

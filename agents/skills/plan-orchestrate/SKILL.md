@@ -1,6 +1,6 @@
 ---
 name: plan-orchestrate
-description: Execute an approved plan from .scratch/<feature>/ - run its tasks in dependency order with tdd-worker agents, run the gates, review the diff and commit. Use when the user says to run, execute or implement a plan.
+description: Execute an approved plan from .scratch/<feature>/ - run its tasks in dependency order with tdd-worker and ui-worker agents, run the gates, review the diff and commit. Use when the user says to run, execute or implement a plan.
 ---
 
 # plan-orchestrate
@@ -29,16 +29,22 @@ Repeat until no task is ready and none is in progress:
   alone. Start a role by its agent type when the harness has one (Claude Code, `.claude/agents`),
   otherwise read `.agents/agents/<role>.md`, drop the frontmatter, and pass the body plus the task
   details to the subagent tool.
+- A task with `ui:` requirements goes to `ui-worker` instead, and runs alone: wait until no task
+  is in progress. Its checkout must be served first. When another checkout is served, ask the user
+  once before switching, then switch with the command `AGENTS.md` names.
 - Give each worker everything it needs, it does not see this conversation: the Docker root, the
   checkout name and path, the task file path, the test-runner output, and the full text of the
-  project references the task needs.
+  project references the task needs. A `ui-worker` also gets the plan's `evidence/` path, the UI
+  testing reference and the UI rules file.
 - On `TASK_COMPLETE`: check the task file has every requirement ticked with a real result line,
-  then set `Status: done`.
+  then set `Status: done`. For a `ui:` requirement the result is a screenshot: check the file
+  exists and look at it yourself against the requirement.
 - On `TASK_FAILED: <reason>`: add the reason under `## Comments`, increment `Retry`. Below 3, set
   it back to `ready-for-agent`. At 3, set `blocked` and keep going with other tasks. You may
   suggest `diagnosing-bugs` to the user for a blocked task.
-- A test run that exits 2 is a prerequisite error (for example a lockfile mismatch), not a
-  failed attempt: stop that task and report it to the user, do not count a retry.
+- `TASK_FAILED: prerequisite <message>` is not a failed attempt: a test run that exits 2 (for
+  example a lockfile mismatch), a checkout that is not served, a page that needs a login nobody
+  gave. Stop that task and report it to the user, do not count a retry.
 
 When nothing is ready and tasks remain: print `TASKS_BLOCKED` with each blocked task and its
 reason, and stop.

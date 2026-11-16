@@ -112,6 +112,7 @@ AGENTS.md                                   the single source: boundaries, comma
 project/agent/references/architecture.md    layout, commands, checkouts
 project/agent/references/testing.md         test command, gate matrix, evidence
 project/agent/references/code-standards.md  the standard, review checks
+project/agent/references/ui-testing.md      rebuild commands, pages, login, widths, screenshots
 ```
 
 Keep the layer out of Git with `src/.gitignore` or `src/.git/info/exclude`, unless the project
@@ -138,7 +139,7 @@ references and plans as one opened in `src/`:
 A harness with agent types (Claude Code `.claude/agents`, OMP `.omp/agents`) calls a role by name.
 Every other harness reads `.agents/agents/<role>.md`, drops the frontmatter and passes the body to
 its subagent tool. `agents/skills/project-setup/references/examples/magento/` is the worked example
-for the three references.
+for the four references and the UI rules file the hook injects.
 
 ## The daily loop
 
@@ -180,7 +181,7 @@ flowchart TD
   C --> U{"user approves?"}
   U -->|"no"| P
   U -->|"yes"| B["bin/wt create a type/slug branch"]
-  B --> O["plan-orchestrate: ready tasks, one tdd-worker each"]
+  B --> O["plan-orchestrate: ready tasks, one tdd-worker each, ui-worker for a UI task"]
   O --> G["gates for every surface touched"]
   G --> DR["diff-reviewer"]
   DR --> M["commit, merge request, a human deploys"]
@@ -198,8 +199,41 @@ flowchart TD
 | `code-researcher` | answers one question with `path:line` evidence, read only |
 | `devils-advocate` | critiques the plan before any code, fixes the task files |
 | `tdd-worker` | implements one task file, RED then GREEN per requirement |
+| `ui-worker` | implements one UI task file, a screenshot per `ui:` requirement |
 | `standards-enforcer` | fixes standards without changing behavior, off by default |
 | `diff-reviewer` | reviews the diff before a commit, read only |
+
+## UI tests
+
+What a user sees is a `ui:` requirement, proved by a screenshot, never by reading the code. One
+`ui-worker` runs per UI task, alone, because one checkout is served at a time.
+
+```mermaid
+flowchart TD
+  T["UI task: ui: page @ width | what must be visible"] --> S{"checkout served?"}
+  S -->|"no"| P["TASK_FAILED: prerequisite, ask before bin/wt use"]
+  S -->|"yes"| B["BEFORE: open the page, note the baseline console errors"]
+  B --> C["CHANGE: view files only, extend before override"]
+  C --> R["BUILD: the rebuild line of ui-testing.md for the file type"]
+  R --> L["LOOK: screenshot at the width, open the image"]
+  L --> K{"visible, no sideways scroll, no new console error?"}
+  K -->|"no, under 3 tries"| C
+  K -->|"no, 3 tries"| F["TASK_FAILED: requirement and what you see"]
+  K -->|"yes"| X["tick with evidence/NN-req-width.png"]
+  X --> N{"more requirements?"}
+  N -->|"yes"| B
+  N -->|"no"| A["retake every screenshot after the last edit, PHPCS gate"]
+  A --> D["TASK_COMPLETE"]
+  D --> O["plan-orchestrate looks at the screenshots"]
+  O --> V["diff-reviewer opens each one, newer than the last edit"]
+```
+
+- The rebuild table, the page, the login, the widths and the pass rule live in the project's
+  `project/agent/references/ui-testing.md`. The platform rules the hook injects live in the UI
+  rules file (`docs/agents/ui-conventions.md` in the example).
+- A screenshot passes when it shows what the requirement says at that width, the page does not
+  scroll sideways, and the console has no error the page did not have before the change.
+- Evidence belongs to the last revision: any later edit makes every screenshot stale.
 
 ## Unit tests
 
@@ -287,7 +321,7 @@ project is in sync, when the kit path is wrong and on a usage error.
 | `docker/bin/watch` | Frontend watcher that follows `.active-src` |
 | `docker/conf/php/opcache.ini` | OPcache settings for development |
 | `agents/skills/` | Four skills: `plan-create`, `plan-orchestrate`, `project-update`, `project-setup` |
-| `agents/agents/` | Five roles: `code-researcher`, `devils-advocate`, `tdd-worker`, `standards-enforcer`, `diff-reviewer` |
+| `agents/agents/` | Six roles: `code-researcher`, `devils-advocate`, `tdd-worker`, `ui-worker`, `standards-enforcer`, `diff-reviewer` |
 | `agents/hooks/` | Three hooks: `ui-conventions.sh`, `guard-paths.sh`, `kit-drift.sh` |
 
 ## Tests

@@ -37,8 +37,8 @@ Run the gates for the surfaces you changed, after the last edit, and record one 
 | Module with `Test/Unit` | unit tests | `bin/test/unit --wt <name> [--parallel] <module>/Test/Unit` | pass |
 | Class, plugin, preference, observer, controller, CLI, cron | DI compile | `bin/cli php bin/magento setup:di:compile` on the served checkout | exit 0 |
 | `db_schema.xml`, data patch, enabling a module | schema | `bin/magento setup:upgrade` then `cache:flush`, tell the user first | exit 0 |
-| Layout, template, JS, LESS, CSS | frontend build | `bin/grunt less:<theme>` | exit 0 |
-| Layout, template, JS, LESS, CSS | UI | the project's browser check, two widths | matches the design, no horizontal overflow |
+| Layout, template, JS, LESS, CSS, UI component | frontend build | the rebuild table in `ui-testing.md` | exit 0, the page shows the change |
+| Layout, template, JS, LESS, CSS, UI component | UI | one screenshot per `ui:` requirement, see `ui-testing.md` | shows what the requirement says, no horizontal overflow, console clean |
 | Queue, consumer, cron | real run | restart the consumer or run cron, read `var/log` | no new errors |
 | `app/etc/config.php` | diff | `git diff -- app/etc/config.php` | only your module's line |
 | No automated test | manual check | list the steps and expected results | the user confirms |
