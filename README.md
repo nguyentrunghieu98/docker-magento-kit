@@ -3,14 +3,16 @@
 [English](README.md) | [Tiếng Việt](README.vi.md)
 
 A small overlay for a [markshust/docker-magento](https://github.com/markshust/docker-magento)
-Docker root: one stack serving many Git worktrees, one unit test runner, and agent hooks.
-Docker itself comes from upstream; this kit only adds what upstream does not have.
+Docker root: one stack serving many Git worktrees, one unit test runner, four skills and five agent
+roles. Docker itself comes from upstream; this kit only adds what upstream does not have.
+`sync` copies the overlay into a Docker root or reports what drifted.
 There is no installer, no profile file and no generated configuration.
 
 ## What is in it
 
 | Path | Purpose |
 |---|---|
+| `sync` | Copy the overlay into a Docker root, or report what drifted |
 | `docker/bin/wt` | Create, switch and clean worktrees in `.worktrees/`. One stack, one DB, one `vendor/` |
 | `docker/compose.worktree.yaml` | Overlay that mounts `.active-src` (the active worktree) |
 | `docker/bin/docker-compose` | Upstream file plus one block that loads the overlay when `.active-src` is a symlink |
@@ -18,20 +20,27 @@ There is no installer, no profile file and no generated configuration.
 | `docker/bin/phpcs` | Upstream file plus `--wt <name>` |
 | `docker/bin/watch` | Frontend watcher that follows `.active-src` |
 | `docker/conf/php/opcache.ini` | OPcache settings for development |
+| `agents/skills/` | Four skills: `plan-create`, `plan-orchestrate`, `project-update`, `project-setup` |
+| `agents/agents/` | Five roles: `code-researcher`, `devils-advocate`, `tdd-worker`, `standards-enforcer`, `diff-reviewer` |
 | `agents/hooks/ui-conventions.sh` | Agent hook that injects the project's UI rules when a UI file is edited |
 
 ## Add it to a Docker root
 
-Set up the Docker root with upstream first, then copy the overlay over it:
+Set up the Docker root with upstream first, then copy the overlay from the kit:
 
 ```bash
-cp -a magento-docker-kit/docker/. /path/to/docker-root/
+./sync --target /path/to/docker-root          # list what is missing or different
+./sync --target /path/to/docker-root --apply  # copy it
 git -C /path/to/docker-root/src config wt.from origin/master    # base of new worktrees
 git -C /path/to/docker-root/src config wt.into origin/staging   # target used by prune
 ```
 
-Copying overwrites files with the same name. On a Docker root that already has its own
-`compose.worktree.yaml` or `bin/docker-compose`, compare them file by file instead.
+`sync` only adds and updates. It never deletes, so a file the kit drops is removed in the project by
+hand. A file you changed in the project shows up as `M`: decide per file instead of applying blindly.
+`--skip <path>` leaves one file alone, for a file the project owns itself (for example its own
+`compose.worktree.yaml`).
+On a Docker root that already has its own `compose.worktree.yaml` or `bin/docker-compose`, compare
+the two before the first `--apply`.
 The overlay covers `app` and `phpfpm`. Upstream's `phpfpm-xdebug` still mounts `./src`,
 so `--xdebug` runs against `src/`, not the active worktree.
 
@@ -49,6 +58,26 @@ bin/wt run <name> <command...>       # run a command for that checkout in a thro
 bin/wt prune --dry-run               # merged into wt.into (or --into) and review worktrees
 bin/wt doctor                        # compare the phpfpm mount with .active-src
 ```
+
+## The project layer
+
+The kit carries the shared layer only. A project writes its own `AGENTS.md` (the single source) and
+`project/agent/references/{architecture,testing,code-standards}.md`, and links the harness files to
+the shared ones:
+
+```
+CLAUDE.md                -> AGENTS.md
+.claude/skills           -> ../.agents/skills
+.claude/agents/<role>.md -> ../../.agents/agents/<role>.md
+```
+
+A harness with agent types (Claude Code `.claude/agents`, OMP `.omp/agents`) calls a role by name.
+Every other harness reads `.agents/agents/<role>.md`, drops the frontmatter and passes the body to
+its subagent tool.
+
+`project-setup` does this once per project. `project-update` runs `sync` and checks that `AGENTS.md`
+still answers what the skills read. `agents/skills/project-setup/references/examples/magento/` is the
+worked example for the three references.
 
 ## Unit tests
 

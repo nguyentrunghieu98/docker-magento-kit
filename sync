@@ -1,0 +1,150 @@
+#!/usr/bin/env bash
+# sync - copy the kit's overlay into a Docker root, or report what drifted.
+#
+#   sync [--target <dir>] [--apply] [--quiet] [--skip <path>]
+#
+# The overlay is two trees, mapped onto the target:
+#   docker/   -> <target>/            bin/, compose.worktree.yaml, conf/
+#   agents/   -> <target>/.agents/    skills/, agents/, hooks/
+#
+# The default is a report: it lists files that are missing (A) or different (M)
+# and exits 1. --apply copies them. Nothing is ever deleted here: when the kit
+# drops a file, remove it in the project by hand (see the kit's README).
+# --skip <path> leaves one file alone, given relative to the target, for a file
+# the project owns itself (for example its own compose.worktree.yaml).
+set -Eeuo pipefail
+
+SOURCE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+MAPPINGS=("docker:" "agents:.agents")
+TARGET="$PWD"
+APPLY=0
+QUIET=0
+SKIPS=()
+
+usage() {
+  cat <<'USAGE'
+Usage: sync [--target <dir>] [--apply] [--quiet]
+
+  --target <dir>  Docker root to sync into (default: the current directory)
+  --apply         Copy the missing and changed files (default: only report)
+  --quiet         Print the summary only, not the file list
+  --skip <path>   Leave that file alone (relative to the target), repeatable
+
+Exit status: 0 in sync or copied, 1 differences or conflicts, 2 usage error.
+USAGE
+}
+
+die() { printf 'ERROR: %s\n' "$*" >&2; exit 2; }
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --target)
+      [[ $# -ge 2 && -n "$2" ]] || die '--target needs a directory'
+      TARGET="$2"; shift 2 ;;
+    --apply) APPLY=1; shift ;;
+    --quiet) QUIET=1; shift ;;
+    --skip)
+      [[ $# -ge 2 && -n "$2" ]] || die '--skip needs a path relative to the target'
+      SKIPS+=("${2#/}"); shift 2 ;;
+    -h | --help) usage; exit 0 ;;
+    *) usage >&2; die "Unknown argument: $1" ;;
+  esac
+done
+
+[[ -d "$TARGET" ]] || die "Target is not a directory: $TARGET"
+TARGET="$(cd "$TARGET" && pwd -P)"
+[[ "$TARGET" != "$SOURCE_ROOT" ]] || die "Target is the kit itself: $TARGET"
+
+KIND=()
+SRC=()
+DST=()
+
+add_pair() {
+  KIND+=("$1")
+  SRC+=("$2")
+  DST+=("$3")
+}
+
+same=0
+skipped=0
+for mapping in "${MAPPINGS[@]}"; do
+  sub="${mapping%%:*}"
+  prefix="${mapping#*:}"
+  [[ -d "$SOURCE_ROOT/$sub" ]] || die "Missing directory in the kit: $sub/"
+  while IFS= read -r source; do
+    rel="${source#"$SOURCE_ROOT/$sub/"}"
+    if [[ -n "$prefix" ]]; then
+      dest="$TARGET/$prefix/$rel"
+    else
+      dest="$TARGET/$rel"
+    fi
+    rel_target="${dest#"$TARGET"/}"
+    for skip in ${SKIPS[@]+"${SKIPS[@]}"}; do
+      if [[ "$rel_target" == "$skip" ]]; then
+        skipped=$((skipped + 1))
+        continue 2
+      fi
+    done
+    if [[ -L "$dest" || -d "$dest" ]]; then
+      add_pair 'X' "$source" "$dest"
+    elif [[ ! -e "$dest" ]]; then
+      add_pair 'A' "$source" "$dest"
+    elif cmp -s "$source" "$dest"; then
+      same=$((same + 1))
+    else
+      add_pair 'M' "$source" "$dest"
+    fi
+  done < <(find "$SOURCE_ROOT/$sub" -type f -print | sort)
+done
+
+added=0
+changed=0
+conflict=0
+lines=()
+for i in "${!KIND[@]}"; do
+  case "${KIND[$i]}" in
+    A) added=$((added + 1)) ;;
+    M) changed=$((changed + 1)) ;;
+    X) conflict=$((conflict + 1)) ;;
+  esac
+  lines+=("${KIND[$i]}  ${DST[$i]#"$TARGET"/}")
+done
+
+if [[ "$APPLY" -eq 0 ]]; then
+  if [[ "$QUIET" -eq 0 && "${#lines[@]}" -gt 0 ]]; then
+    printf '%s\n' "${lines[@]}" | sort -k2
+    printf '\n'
+  fi
+  printf '%d added, %d changed, %d unchanged, %d skipped\n' "$added" "$changed" "$same" "$skipped"
+  if [[ "$conflict" -gt 0 ]]; then
+    printf 'X entries are a symlink or a directory in the target, move them away first\n' >&2
+    exit 1
+  fi
+  if [[ "$added" -gt 0 || "$changed" -gt 0 ]]; then
+    printf 'Run again with --apply to copy them.\n'
+    exit 1
+  fi
+  exit 0
+fi
+
+copied=0
+failed=0
+for i in "${!KIND[@]}"; do
+  [[ "${KIND[$i]}" == 'X' ]] && continue
+  dest="${DST[$i]}"
+  mkdir -p "$(dirname "$dest")"
+  if cp -p "${SRC[$i]}" "$dest" && cmp -s "${SRC[$i]}" "$dest"; then
+    copied=$((copied + 1))
+  else
+    printf 'ERROR: cannot copy %s\n' "$dest" >&2
+    failed=$((failed + 1))
+  fi
+done
+
+printf '%d copied, %d unchanged, %d skipped\n' "$copied" "$same" "$skipped"
+if [[ "$conflict" -gt 0 ]]; then
+  printf 'X entries were skipped, move them away first\n' >&2
+  exit 1
+fi
+[[ "$failed" -eq 0 ]] || exit 1
+exit 0

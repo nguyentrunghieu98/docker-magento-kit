@@ -10,23 +10,23 @@ set -Eeuo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)/lib.sh"
 
 # Fake docker: logs every command, `docker info` follows the online flag, and when online
-# `compose ... ps --services --status running` returns app, phpfpm, db. KIT_TEST_FAIL_UP=1
+# `compose ... ps --services --status running` returns app, phpfpm, db. TEST_FAIL_UP=1
 # makes `compose ... up` fail.
 install_docker() {
   cat > "$SANDBOX/.fakebin/docker" <<'STUB'
 #!/usr/bin/env bash
 if [[ "${1:-}" == compose && "${2:-}" == version ]]; then exit 0; fi
-printf 'docker %s\n' "$*" >> "${KIT_LOG_DIR:?}/docker.log"
+printf 'docker %s\n' "$*" >> "${TEST_LOG_DIR:?}/docker.log"
 case "$*" in
   info*)
-    [[ -e "${KIT_DOCKER_ONLINE:?}" ]] && exit 0
+    [[ -e "${TEST_DOCKER_ONLINE:?}" ]] && exit 0
     exit 1
     ;;
   *'ps --services --status running'*)
     printf '%s\n' app phpfpm db
     ;;
   *' up '*)
-    [[ "${KIT_TEST_FAIL_UP:-0}" == 1 ]] && exit 1
+    [[ "${TEST_FAIL_UP:-0}" == 1 ]] && exit 1
     ;;
 esac
 exit 0
@@ -75,7 +75,7 @@ wt() {
   run_in "$ROOT" bin/wt "$@"
 }
 
-calls() { cat "$KIT_LOG_DIR/docker.log" 2> /dev/null || true; }
+calls() { cat "$TEST_LOG_DIR/docker.log" 2> /dev/null || true; }
 
 test_help() {
   new_root
@@ -232,10 +232,10 @@ test_use_switches_and_recreates_php_only() {
   wt use feature-one
   assert_status 0 'use exits 0 when Docker is online'
   assert_symlink_to "$ROOT/.active-src" "$ROOT/.worktrees/feature-one" 'use points .active-src at the worktree'
-  assert_file_matches "$KIT_LOG_DIR/docker.log" ' stop app phpfpm$' 'only app and phpfpm are stopped'
-  assert_file_matches "$KIT_LOG_DIR/docker.log" ' up -d --no-deps --force-recreate app phpfpm$' 'app and phpfpm are recreated'
-  assert_file_does_not_match "$KIT_LOG_DIR/docker.log" ' (stop|up) .*(db|redis|opensearch|rabbitmq)' 'db, redis, search and queue are not touched'
-  assert_file_matches "$KIT_LOG_DIR/docker.log" 'exec phpfpm bin/magento cache:clean' 'use clears the Magento cache'
+  assert_file_matches "$TEST_LOG_DIR/docker.log" ' stop app phpfpm$' 'only app and phpfpm are stopped'
+  assert_file_matches "$TEST_LOG_DIR/docker.log" ' up -d --no-deps --force-recreate app phpfpm$' 'app and phpfpm are recreated'
+  assert_file_does_not_match "$TEST_LOG_DIR/docker.log" ' (stop|up) .*(db|redis|opensearch|rabbitmq)' 'db, redis, search and queue are not touched'
+  assert_file_matches "$TEST_LOG_DIR/docker.log" 'exec phpfpm bin/magento cache:clean' 'use clears the Magento cache'
   assert_contains 'Active worktree: feature-one' 'use reports the new worktree'
 }
 
@@ -249,7 +249,7 @@ test_use_by_branch_name_and_already_active() {
   wt use feature-one
   assert_status 0 'using the same worktree again exits 0'
   assert_contains 'Already active' 'using it again reports it is already active'
-  assert_file_does_not_match "$KIT_LOG_DIR/docker.log" ' (stop|up) ' 'using it again does not restart'
+  assert_file_does_not_match "$TEST_LOG_DIR/docker.log" ' (stop|up) ' 'using it again does not restart'
 }
 
 test_use_without_docker() {
@@ -260,7 +260,7 @@ test_use_without_docker() {
   assert_status 0 'use exits 0 when Docker is off'
   assert_symlink_to "$ROOT/.active-src" "$ROOT/.worktrees/feature-one" 'use still changes .active-src'
   assert_contains 'bin/start' 'use reminds to start the stack'
-  assert_file_does_not_match "$KIT_LOG_DIR/docker.log" ' (stop|up) ' 'no restart when Docker is off'
+  assert_file_does_not_match "$TEST_LOG_DIR/docker.log" ' (stop|up) ' 'no restart when Docker is off'
 }
 
 test_use_back_to_main() {
@@ -277,14 +277,14 @@ test_use_rolls_back_on_failure() {
   wt create feature/one
   set_docker_online
   reset_calls
-  export KIT_TEST_FAIL_UP=1
+  export TEST_FAIL_UP=1
   wt use feature-one
-  unset KIT_TEST_FAIL_UP
+  unset TEST_FAIL_UP
   assert_status_nonzero 'use fails when recreating the container fails'
   assert_contains 'Worktree switch cancelled' 'use reports the cancellation'
   assert_symlink_to "$ROOT/.active-src" "$SRC" '.active-src is restored to its old target'
-  assert_file_line_count 2 "$KIT_LOG_DIR/docker.log" ' up -d --no-deps --force-recreate ' 'the restore tries the recreate again'
-  assert_file_does_not_match "$KIT_LOG_DIR/docker.log" 'cache:clean' 'a failed switch does not clean the cache'
+  assert_file_line_count 2 "$TEST_LOG_DIR/docker.log" ' up -d --no-deps --force-recreate ' 'the restore tries the recreate again'
+  assert_file_does_not_match "$TEST_LOG_DIR/docker.log" 'cache:clean' 'a failed switch does not clean the cache'
 }
 
 test_use_refuses_outside_paths() {
@@ -386,7 +386,7 @@ test_status() {
   set_docker_online
   reset_calls
   wt status
-  assert_file_matches "$KIT_LOG_DIR/docker.log" ' ps$' 'status calls compose ps when Docker is online'
+  assert_file_matches "$TEST_LOG_DIR/docker.log" ' ps$' 'status calls compose ps when Docker is online'
 }
 
 test_mounts() {
@@ -398,7 +398,7 @@ test_mounts() {
   reset_calls
   wt mounts
   assert_status 0 'mounts exits 0 when Docker is online'
-  assert_file_matches "$KIT_LOG_DIR/docker.log" ' config$' 'mounts calls compose config'
+  assert_file_matches "$TEST_LOG_DIR/docker.log" ' config$' 'mounts calls compose config'
 }
 
 test_shell() {
@@ -451,7 +451,7 @@ test_remove_refuses_dirty_and_outside() {
 }
 
 test_overlay_mounts_active_src_and_shares_dirs() {
-  local f="$KIT_REPO_ROOT/docker/compose.worktree.yaml" t
+  local f="$REPO_ROOT/docker/compose.worktree.yaml" t
   assert_file_matches "$f" '\./\.active-src:/var/www/html:cached' 'the overlay mounts .active-src at /var/www/html'
   for t in vendor node_modules pub/media; do
     assert_file_matches "$f" "\./src/$t:/var/www/html/$t" "the overlay shares $t from src/"

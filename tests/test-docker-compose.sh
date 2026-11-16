@@ -18,7 +18,7 @@ dc() {
   run_in "$ROOT" bin/docker-compose "$@"
 }
 
-last_call() { tail -n1 "$KIT_LOG_DIR/docker.log"; }
+last_call() { tail -n1 "$TEST_LOG_DIR/docker.log"; }
 
 test_without_active_src_matches_upstream() {
   new_root

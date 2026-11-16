@@ -3,14 +3,16 @@
 [English](README.md) | [Tiếng Việt](README.vi.md)
 
 Một lớp phủ nhỏ cho Docker root dựng bằng [markshust/docker-magento](https://github.com/markshust/docker-magento):
-một stack phục vụ nhiều Git worktree, một runner unit test duy nhất, và hook cho agent.
+một stack phục vụ nhiều Git worktree, một runner unit test duy nhất, bốn skill và năm role cho agent.
 Phần Docker lấy từ upstream, kit chỉ thêm những gì upstream không có.
+`sync` chép lớp phủ vào một Docker root hoặc báo phần đã lệch.
 Không có installer, không có file profile, không có cấu hình sinh tự động.
 
 ## Gồm những gì
 
 | Đường dẫn | Công dụng |
 |---|---|
+| `sync` | Chép lớp phủ vào một Docker root, hoặc báo phần đã lệch |
 | `docker/bin/wt` | Tạo, chuyển và dọn worktree trong `.worktrees/`. Một stack, một DB, một `vendor/` |
 | `docker/compose.worktree.yaml` | Overlay mount `.active-src` (worktree đang active) |
 | `docker/bin/docker-compose` | File của upstream, thêm một khối nạp overlay khi `.active-src` là symlink |
@@ -18,20 +20,26 @@ Không có installer, không có file profile, không có cấu hình sinh tự 
 | `docker/bin/phpcs` | File của upstream, thêm `--wt <name>` |
 | `docker/bin/watch` | Watcher frontend đi theo `.active-src` |
 | `docker/conf/php/opcache.ini` | Cấu hình OPcache cho môi trường dev |
+| `agents/skills/` | Bốn skill: `plan-create`, `plan-orchestrate`, `project-update`, `project-setup` |
+| `agents/agents/` | Năm role: `code-researcher`, `devils-advocate`, `tdd-worker`, `standards-enforcer`, `diff-reviewer` |
 | `agents/hooks/ui-conventions.sh` | Hook cho agent, chèn quy tắc UI của dự án khi sửa file giao diện |
 
 ## Thêm vào một Docker root
 
-Dựng Docker root bằng upstream trước, rồi chép lớp phủ đè lên:
+Dựng Docker root bằng upstream trước, rồi chép lớp phủ từ kit:
 
 ```bash
-cp -a magento-docker-kit/docker/. /path/to/docker-root/
+./sync --target /path/to/docker-root          # liệt kê file thiếu hoặc khác
+./sync --target /path/to/docker-root --apply  # chép
 git -C /path/to/docker-root/src config wt.from origin/master    # nhánh gốc cho worktree mới
 git -C /path/to/docker-root/src config wt.into origin/staging   # nhánh đích cho prune
 ```
 
-Lệnh chép sẽ ghi đè file trùng tên. Nếu Docker root đã có `compose.worktree.yaml` hoặc
-`bin/docker-compose` riêng thì so từng file thay vì chép đè.
+`sync` chỉ thêm và cập nhật, không bao giờ xóa, nên file kit bỏ thì phải xóa trong dự án bằng tay.
+File bạn đã sửa trong dự án hiện ra là `M`: quyết từng file thay vì chép đè hàng loạt.
+`--skip <path>` để yên một file mà dự án tự quản (ví dụ `compose.worktree.yaml` riêng).
+Docker root đã có `compose.worktree.yaml` hoặc `bin/docker-compose` riêng thì so hai bản trước lần
+`--apply` đầu tiên.
 Overlay chỉ phủ `app` và `phpfpm`. Service `phpfpm-xdebug` của upstream vẫn mount `./src`,
 nên `--xdebug` chạy trên `src/`, không phải worktree đang active.
 
@@ -49,6 +57,25 @@ bin/wt run <name> <command...>       # chạy một lệnh cho checkout đó tro
 bin/wt prune --dry-run               # worktree đã merge vào wt.into (hoặc --into) và worktree review
 bin/wt doctor                        # so mount của phpfpm với .active-src
 ```
+
+## Lớp dự án
+
+Kit chỉ mang lớp dùng chung. Dự án tự viết `AGENTS.md` (nguồn duy nhất) và
+`project/agent/references/{architecture,testing,code-standards}.md`, rồi nối file của harness về
+bản dùng chung:
+
+```
+CLAUDE.md                -> AGENTS.md
+.claude/skills           -> ../.agents/skills
+.claude/agents/<role>.md -> ../../.agents/agents/<role>.md
+```
+
+Harness có agent type (Claude Code `.claude/agents`, OMP `.omp/agents`) gọi role theo tên. Harness
+khác đọc `.agents/agents/<role>.md`, bỏ frontmatter rồi đưa phần thân cho subagent tool của nó.
+
+`project-setup` làm việc này một lần cho mỗi dự án. `project-update` chạy `sync` và kiểm tra
+`AGENTS.md` còn trả lời đúng những gì skill đọc. Thư mục
+`agents/skills/project-setup/references/examples/magento/` là ví dụ cho ba file references.
 
 ## Unit test
 
