@@ -330,6 +330,79 @@ test_prepare_warns_on_lock_mismatch() {
   assert_contains 'composer.lock differs from src/' 'prepare warns that composer.lock differs'
 }
 
+# The agent layer of the main checkout: not tracked, the way sync and a project leave it.
+agent_layer_new() {
+  mkdir -p "$SRC/.agents/skills/plan-create" "$SRC/.scratch" "$SRC/docs"
+  printf 'RULES\n' > "$SRC/AGENTS.md"
+  ln -s AGENTS.md "$SRC/CLAUDE.md"
+  printf 'skill\n' > "$SRC/.agents/skills/plan-create/SKILL.md"
+  printf 'guide\n' > "$SRC/docs/guide.md"
+}
+
+test_create_links_the_agent_layer() {
+  new_root
+  agent_layer_new
+  wt create feature/one
+  local d="$ROOT/.worktrees/feature-one"
+  assert_symlink_to "$d/AGENTS.md" "$SRC/AGENTS.md" 'AGENTS.md links to the main checkout'
+  assert_symlink_to "$d/CLAUDE.md" "$SRC/CLAUDE.md" 'CLAUDE.md links to the main checkout'
+  assert_symlink_to "$d/.agents" "$SRC/.agents" '.agents links to the main checkout'
+  assert_symlink_to "$d/.scratch" "$SRC/.scratch" '.scratch is shared with the main checkout'
+  assert_files_equal "$SRC/.agents/skills/plan-create/SKILL.md" "$d/.agents/skills/plan-create/SKILL.md" \
+    'a skill is readable in the worktree'
+  assert_equals 'RULES' "$(cat "$d/CLAUDE.md")" 'CLAUDE.md resolves to the instructions'
+  assert_absent "$d/.codex" 'an entry the main checkout lacks is not linked'
+  assert_absent "$d/docs" 'a project path is not linked without wt.link'
+  assert_equals '' "$(git -C "$d" status --porcelain)" 'the links are not untracked files'
+}
+
+test_prepare_links_wt_link_paths_and_keeps_what_the_worktree_has() {
+  new_root
+  agent_layer_new
+  wt create feature/one
+  local d="$ROOT/.worktrees/feature-one"
+  rm "$d/.scratch"
+  mkdir "$d/.scratch"
+  printf 'own plan\n' > "$d/.scratch/plan.md"
+  git -C "$SRC" config --add wt.link docs
+  git -C "$SRC" config --add wt.link ../outside
+  wt prepare feature-one
+  assert_status 0 'prepare exits 0'
+  assert_symlink_to "$d/docs" "$SRC/docs" 'a wt.link path is linked'
+  assert_file "$d/.scratch/plan.md" 'a directory the worktree already has is kept'
+  assert_absent "$SRC/.scratch/plan.md" 'and nothing leaks into the main checkout'
+  assert_contains 'wt.link ../outside is not a path inside src/' 'a path outside src/ is refused'
+  wt prepare feature-one
+  assert_status 0 'a second prepare exits 0'
+  assert_symlink_to "$d/docs" "$SRC/docs" 'the link is unchanged by a second prepare'
+}
+
+test_links_git_would_track_are_excluded() {
+  new_root
+  printf '/vendor/\n/node_modules/\n' > "$SRC/.gitignore"
+  git -C "$SRC" commit -q -am 'a repository without a whitelist'
+  git -C "$SRC" push -q origin master
+  agent_layer_new
+  wt create feature/one
+  local d="$ROOT/.worktrees/feature-one"
+  assert_symlink_to "$d/AGENTS.md" "$SRC/AGENTS.md" 'AGENTS.md is linked'
+  assert_file_line "$SRC/.git/info/exclude" '/AGENTS.md' 'the link is added to info/exclude'
+  assert_not_contains 'AGENTS.md' 'the link is not an untracked file' "$(git -C "$d" status --porcelain)"
+  wt prepare feature-one
+  assert_file_line_count 1 "$SRC/.git/info/exclude" '^/AGENTS\.md$' 'the exclude line is written once'
+}
+
+test_remove_keeps_the_agent_layer_of_the_main_checkout() {
+  new_root
+  agent_layer_new
+  wt create feature/one
+  wt remove feature-one
+  assert_status 0 'a worktree with links is removed'
+  assert_absent "$ROOT/.worktrees/feature-one" 'the worktree directory is gone'
+  assert_file "$SRC/AGENTS.md" 'AGENTS.md of the main checkout is still there'
+  assert_file "$SRC/.agents/skills/plan-create/SKILL.md" 'the skills of the main checkout are still there'
+}
+
 test_list_marks_active() {
   new_root
   wt create feature/one

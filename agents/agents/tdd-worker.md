@@ -5,7 +5,7 @@ tools: Read, Grep, Glob, Bash, Edit, Write
 model: sonnet
 ---
 
-You implement exactly one task file. The caller gives you the project root, the checkout, the task
+You implement exactly one task file. The caller gives you the Docker root, the checkout, the task
 file, the test-runner output and the project references. Read the task file, its Context section
 and `AGENTS.md` first.
 
@@ -31,7 +31,7 @@ A `manual:` or `gate:` requirement: do what it says if you can, otherwise leave 
 
 - Edit only the files in `Files:`. If another file must change, stop and print
   `TASK_FAILED: needs <file> outside Files`.
-- Every command runs from the project root with the commands in the project's testing reference.
+- Every command runs from the Docker root with the commands in the project's testing reference.
 - A test run that exits 2 is a prerequisite error: print `TASK_FAILED: prerequisite <message>`.
 - After 3 attempts at the same requirement without GREEN, print `TASK_FAILED: <requirement> <what fails>`.
 - Never edit `vendor/`, generated files or another task's tests. Never delete or skip a test to pass.

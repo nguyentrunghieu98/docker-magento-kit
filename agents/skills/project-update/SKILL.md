@@ -10,8 +10,9 @@ file itself and writes no generator output.
 
 ## 1. Report
 
-- Read `AGENTS.md` for the project root and for where the kit checkout is.
-- Run `sync --target <project root>` in the kit. It lists `A` (missing) and `M` (different).
+- Read `AGENTS.md` for the Docker root (the parent of the agent root) and for where the kit
+  checkout is.
+- Run `sync --target <Docker root>` in the kit. It lists `A` (missing) and `M` (different).
 - For each `M`, show a short diff when the file changes behavior, not only comments:
   `diff -u <project file> <kit file> | head -40`.
 
@@ -25,7 +26,7 @@ move the edit into the kit, or take the kit version.
 
 ## 3. Apply
 
-- `sync --target <project root> --apply`.
+- `sync --target <Docker root> --apply`.
 - Run it again. It must print `0 added, 0 changed`.
 
 `sync` never deletes. When the kit drops a file, the kit's README says so: remove the project copy
@@ -35,7 +36,7 @@ by hand, in the same commit.
 
 The skills read these from `AGENTS.md`. Report anything missing or stale, never invent it:
 
-- the project root and the checkout directory
+- the Docker root, the agent root and the checkout directory
 - the command that creates, lists and switches a checkout
 - the test command and its info mode
 - the project references (architecture, testing, standards) and their paths

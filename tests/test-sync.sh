@@ -22,8 +22,8 @@ test_report_lists_missing_files() {
   sync_in_target
   assert_status 1 'a fresh target reports drift'
   assert_contains 'A  bin/wt' 'the docker overlay maps onto the target root'
-  assert_contains 'A  .agents/skills/plan-create/SKILL.md' 'agents/ maps onto .agents/'
-  assert_contains 'A  .agents/agents/tdd-worker.md' 'the roles are part of the overlay'
+  assert_contains 'A  src/.agents/skills/plan-create/SKILL.md' 'agents/ maps onto src/.agents/'
+  assert_contains 'A  src/.agents/agents/tdd-worker.md' 'the roles are part of the overlay'
   assert_contains 'unchanged' 'the summary counts unchanged files'
 }
 
@@ -33,18 +33,18 @@ test_apply_copies_the_overlay() {
   assert_status 0 '--apply exits 0'
   assert_files_equal "$REPO_ROOT/docker/bin/wt" "$TARGET/bin/wt" 'bin/wt is copied'
   assert_files_equal "$REPO_ROOT/agents/hooks/ui-conventions.sh" \
-    "$TARGET/.agents/hooks/ui-conventions.sh" 'the hook is copied'
+    "$TARGET/src/.agents/hooks/ui-conventions.sh" 'the hook is copied'
   assert_files_equal "$REPO_ROOT/agents/agents/tdd-worker.md" \
-    "$TARGET/.agents/agents/tdd-worker.md" 'a role is copied'
+    "$TARGET/src/.agents/agents/tdd-worker.md" 'a role is copied'
 }
 
 test_apply_keeps_the_executable_bit() {
   new_target
   sync_in_target --apply
-  if [[ -x "$TARGET/bin/wt" && -x "$TARGET/.agents/hooks/ui-conventions.sh" ]]; then
+  if [[ -x "$TARGET/bin/wt" && -x "$TARGET/src/.agents/hooks/ui-conventions.sh" ]]; then
     pass_ 'scripts stay executable after the copy'
   else
-    fail_ 'scripts stay executable after the copy' "$(ls -l "$TARGET/bin/wt" "$TARGET/.agents/hooks/ui-conventions.sh" 2>&1)"
+    fail_ 'scripts stay executable after the copy' "$(ls -l "$TARGET/bin/wt" "$TARGET/src/.agents/hooks/ui-conventions.sh" 2>&1)"
   fi
 }
 

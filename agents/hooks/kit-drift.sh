@@ -4,9 +4,12 @@
 #   kit-drift.sh <kit path> [skip path...]
 #   e.g. "$CLAUDE_PROJECT_DIR"/.agents/hooks/kit-drift.sh /path/to/kit compose.worktree.yaml
 #
-# Runs the kit's `sync --quiet` in report mode and adds one line of context when the
-# project is behind. Silent when the project is in sync, when the kit path is not a
-# kit, and when sync reports a usage error: a broken path must never block a session.
+# The main checkout (src/) is found from this script, <main checkout>/.agents/hooks/, also
+# when the harness is opened in a worktree that links .agents. The Docker root that sync
+# targets is its parent. Runs the kit's `sync --quiet` in report mode and adds one line of
+# context when the project is behind. Silent when the project is in sync, when the kit
+# path is not a kit, and when sync reports a usage error: a broken path must never block
+# a session.
 set -Eeuo pipefail
 
 kit="${1:-}"
@@ -14,14 +17,9 @@ kit="${1:-}"
 shift || true
 [ -d "$kit" ] && [ -x "$kit/sync" ] || exit 0
 
-input=$(cat || true)
-project="${CLAUDE_PROJECT_DIR:-}"
-if [ -z "$project" ] && [ -n "$input" ]; then
-  project="$(jq -r '.cwd // empty' 2>/dev/null <<<"$input" || true)"
-fi
-project="${project:-$PWD}"
+project="$(cd "$(dirname "$(realpath "${BASH_SOURCE[0]}")")/../.." && pwd -P)"
 
-args=(--quiet --target "$project")
+args=(--quiet --target "$(dirname "$project")")
 for skip in "$@"; do
   args+=(--skip "$skip")
 done

@@ -29,17 +29,18 @@ Read in this order:
 
 ## The picture
 
-The kit is a source tree. `sync` copies it into a Docker root. The project keeps its own facts in
-`AGENTS.md` and its references.
+The kit is a source tree. `sync` copies it into a Docker root: the Docker tooling at the root, the
+agent layer into `src/`, the main checkout. `src/` is the Git repository and the directory a harness
+is opened in. The project keeps its own facts there, in `AGENTS.md` and its references.
 
 ```text
 kit                                  Docker root
 ├── sync ───────────────────────────▶
 ├── docker/  ───────────────────────▶ bin/wt, bin/test/unit, bin/phpcs, compose.worktree.yaml
-└── agents/  ───────────────────────▶ .agents/skills, .agents/agents, .agents/hooks
+└── agents/  ───────────────────────▶ src/.agents/skills, src/.agents/agents, src/.agents/hooks
 
 Docker root                          Git
-├── src/            main checkout ──▶ the Magento repository, branch master
+├── src/            main checkout ──▶ the Magento repository, branch master, the agent root
 ├── .worktrees/     one per branch
 └── .active-src ──▶ one of them      what the stack mounts at /var/www/html
 ```
@@ -61,8 +62,9 @@ Words used below:
 
 | Word | Means |
 |---|---|
-| Docker root | the directory with `compose.yaml`. It is not a Git repository |
+| Docker root | the directory with `compose.yaml` and `bin/`. It is not a Git repository |
 | checkout | `src/` or a directory in `.worktrees/`. A Magento root on its own branch |
+| agent root | `src/`, the main checkout. A harness is opened here, and `AGENTS.md`, `.agents/`, `.claude/` and `.scratch/` live here |
 | served checkout | the one `.active-src` points at. It is what the stack runs |
 
 ## Set up a project
@@ -97,8 +99,10 @@ git -C /path/to/docker-root/src config wt.into origin/staging   # target used by
   `--xdebug` runs against `src/`, not the active worktree. The runner says so in `--info`.
 - `wt.from` and `wt.into` live in `src/.git/config`. They are not committed and can be replaced per
   call with `--from` and `--into`. Without either, `bin/wt` stops and says how to set them.
+- `bin/` stays in the Docker root, one level above the agent root: from `src/` the commands below
+  are `../bin/wt`, `../bin/test/unit` and so on.
 
-The project layer is yours to write:
+The project layer is yours to write, in `src/`:
 
 ```text
 CLAUDE.md                -> AGENTS.md
@@ -109,6 +113,27 @@ project/agent/references/architecture.md    layout, commands, checkouts
 project/agent/references/testing.md         test command, gate matrix, evidence
 project/agent/references/code-standards.md  the standard, review checks
 ```
+
+Keep the layer out of Git with `src/.gitignore` or `src/.git/info/exclude`, unless the project
+commits it.
+
+A worktree does not carry ignored files, so `bin/wt create`, `prepare` and `use` link the layer of
+`src/` into it. A harness opened in a worktree then has the same instructions, skills, roles, hooks,
+references and plans as one opened in `src/`:
+
+```text
+.worktrees/feat-x/AGENTS.md  -> <Docker root>/src/AGENTS.md
+.worktrees/feat-x/.agents    -> <Docker root>/src/.agents
+.worktrees/feat-x/.scratch   -> <Docker root>/src/.scratch
+```
+
+- Linked when `src/` has them: `AGENTS.md`, `CLAUDE.md`, `.agents`, `.claude`, `.codex`, `.omp`,
+  `project`, `.scratch`.
+- A project adds its own paths, one per call: `git -C src config --add wt.link docs`.
+- It is one shared copy: an edit or a delete through the link changes the file in `src/`.
+- A path the worktree already has is left alone, so a branch that tracks its own copy keeps it.
+- A link Git would not ignore is added to `info/exclude`, so it is never staged.
+- The links are absolute. After moving the Docker root, delete them and run `bin/wt prepare <name>`.
 
 A harness with agent types (Claude Code `.claude/agents`, OMP `.omp/agents`) calls a role by name.
 Every other harness reads `.agents/agents/<role>.md`, drops the frontmatter and passes the body to
@@ -209,9 +234,12 @@ Edit or Write ─▶ ui-conventions.sh <rules path>   a UI file? inject the proj
 Session start ─▶ kit-drift.sh <kit path> [skip…]  behind the kit? one line, with the skill to run
 ```
 
-`ui-conventions.sh` reads the rules file from the edited checkout, else from `src/`, and warns on
-stderr when it is missing. `guard-paths.sh` denies a write into `vendor/`, `generated/` or
-`pub/static/`, because build output is never edited by hand. `kit-drift.sh` stays silent when the
+The hooks find `src/` from their own location, `src/.agents/hooks/`, so they answer the same in a
+harness opened in `src/` and in one opened in a worktree. `ui-conventions.sh` reads the rules file
+from the edited checkout, else from `src/`, and warns on stderr when it is missing. `guard-paths.sh`
+denies a write into `vendor/`, `generated/` or `pub/static/`, because build output is never edited by
+hand, and reminds on a write to a file in `src/` that Git does not ignore while `src/` is on `master`
+or `staging`. `kit-drift.sh` runs `sync` against the parent of `src/` and stays silent when the
 project is in sync, when the kit path is wrong and on a usage error.
 
 ```json

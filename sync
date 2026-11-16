@@ -4,8 +4,11 @@
 #   sync [--target <dir>] [--apply] [--quiet] [--skip <path>]
 #
 # The overlay is two trees, mapped onto the target:
-#   docker/   -> <target>/            bin/, compose.worktree.yaml, conf/
-#   agents/   -> <target>/.agents/    skills/, agents/, hooks/
+#   docker/   -> <target>/               bin/, compose.worktree.yaml, conf/
+#   agents/   -> <target>/src/.agents/   skills/, agents/, hooks/
+#
+# The target is the Docker root. The agent layer goes into src/, the main checkout:
+# that is the Git repository and the directory a harness is opened in.
 #
 # The default is a report: it lists files that are missing (A) or different (M)
 # and exits 1. --apply copies them. Nothing is ever deleted here: when the kit
@@ -15,7 +18,7 @@
 set -Eeuo pipefail
 
 SOURCE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
-MAPPINGS=("docker:" "agents:.agents")
+MAPPINGS=("docker:" "agents:src/.agents")
 TARGET="$PWD"
 APPLY=0
 QUIET=0

@@ -7,14 +7,16 @@ How this project is laid out and run. Module ownership is in `module-map.md`. Re
 
 Mark Shust's docker-magento with the kit's overlay (`bin/wt`, `bin/test/unit`, `bin/phpcs --wt`,
 `compose.worktree.yaml`). The Docker root is not a Git repository. Magento lives in `src/`, its own
-Git repository, mounted at `/var/www/html`. `vendor/`, `generated/` and `pub/static/` are output.
+Git repository, mounted at `/var/www/html`. `src/` is also the agent root: the harness is opened
+there and this file lives under it. `vendor/`, `generated/` and `pub/static/` are output.
 
 Services and images: read `compose.yaml` and `bin/docker-compose ps`, do not trust a copy here.
 `phpfpm` runs the image `<image reference>`.
 
 ## Commands
 
-No PHP on the host: every PHP and Magento command runs from the Docker root.
+No PHP on the host: every PHP and Magento command runs from the Docker root, one level above the
+agent root (`cd ..` first, or `../bin/<command>`).
 
 ```bash
 bin/start | bin/stop | bin/status

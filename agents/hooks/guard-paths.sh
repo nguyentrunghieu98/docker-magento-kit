@@ -1,22 +1,25 @@
 #!/usr/bin/env bash
 # PreToolUse hook (Claude Edit|Write|MultiEdit, Codex apply_patch): refuse a write into
-# build output, and warn when a write lands in src/ while src/ sits on a protected
-# branch.
+# build output, and warn when a write lands in the main checkout while it sits on a
+# protected branch.
 #
 #   guard-paths.sh
 #
 # vendor/, generated/ and pub/static/ are build output: the write is denied with a
-# reason, because no edit there is ever the right fix. A write under <project>/src/
-# while src/ is on master or staging is allowed but carries a reminder: the rule is in
-# AGENTS.md, and a hook cannot tell an intentional exception from a mistake.
+# reason, because no edit there is ever the right fix. A write to a file in the main
+# checkout (src/) that Git does not ignore, while it is on master or staging, is allowed
+# but carries a reminder: the rule is in AGENTS.md, and a hook cannot tell an intentional
+# exception from a mistake.
+#
+# The main checkout is found from this script, <main checkout>/.agents/hooks/, so the
+# answer is the same when the harness is opened in a worktree that links .agents.
 set -Eeuo pipefail
 
 input=$(cat)
 # A payload the hook cannot parse is not a reason to block the edit: fail open.
 jq -e . >/dev/null 2>&1 <<<"$input" || exit 0
 cwd=$(jq -r '.cwd // empty' <<<"$input")
-project="${CLAUDE_PROJECT_DIR:-${cwd:-$PWD}}"
-project="$(realpath -m "$project" 2>/dev/null || printf '%s' "$project")"
+project="$(cd "$(dirname "$(realpath "${BASH_SOURCE[0]}")")/../.." && pwd -P)"
 
 # Claude: tool_input.file_path. Codex apply_patch: patch text in tool_input.command.
 files=$(jq -r '.tool_input.file_path // empty' <<<"$input")
@@ -42,7 +45,7 @@ while IFS= read -r file; do
       ;;
   esac
   case "$path" in
-    "$project"/src/*) warned="$path" ;;
+    "$project"/*) warned="$path" ;;
   esac
 done <<<"$files"
 
@@ -52,11 +55,11 @@ if [ -n "$denied" ]; then
   exit 0
 fi
 
-if [ -n "$warned" ]; then
-  branch="$(git -C "$project/src" symbolic-ref --short HEAD 2>/dev/null || true)"
+if [ -n "$warned" ] && ! git -C "$project" check-ignore -q "$warned" 2>/dev/null; then
+  branch="$(git -C "$project" symbolic-ref --short HEAD 2>/dev/null || true)"
   case "$branch" in
     master | staging)
-      jq -n --arg m "Reminder: $warned is in src/ and src/ is on $branch. AGENTS.md keeps src/ clean on $branch: create a worktree with the project's checkout command and make the change there. The write was allowed." \
+      jq -n --arg m "Reminder: $warned is in the main checkout and it is on $branch. AGENTS.md keeps the main checkout clean on $branch: create a worktree with the project's checkout command and make the change there. The write was allowed." \
         '{hookSpecificOutput:{hookEventName:"PreToolUse",additionalContext:$m}}'
       exit 0
       ;;
