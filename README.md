@@ -234,6 +234,9 @@ flowchart TD
 - A screenshot passes when it shows what the requirement says at that width, the page does not
   scroll sideways, and the console has no error the page did not have before the change.
 - Evidence belongs to the last revision: any later edit makes every screenshot stale.
+- Beyond the requirement, a project may keep a Playwright Test regression suite: one
+  `toHaveScreenshot()` spec per key page and width, compared with committed baselines. It runs for
+  a change to shared styles or layout. An agent never updates a baseline: the user approves it.
 
 ## Unit tests
 

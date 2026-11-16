@@ -62,3 +62,28 @@ The admin is checked at 1440 only.
 - The console has no error the page did not have before the change, and no request for a file of
   this change failed.
 - It was taken after the last edit and after the rebuild.
+
+## Regression suite (Playwright Test)
+
+A `ui:` requirement proves the new behavior. It cannot show that a shared style or layout broke a
+page nobody opened. The project keeps a small suite for that, in `dev/tests/ui-regression/`, one
+spec per key page (login, cart, checkout, product, one admin screen) at the widths above, each
+ending in `await expect(page).toHaveScreenshot('<page>-<width>.png')`.
+
+```bash
+bin/test/ui-regression                  # compare with the baselines
+bin/test/ui-regression --update         # rewrite the baselines: the user approves first
+```
+
+- `bin/test/ui-regression` is the project's own runner, not part of the kit. It runs with one
+  worker, on the served checkout, from the fixed container or machine named in the project's
+  `playwright.config`. A baseline taken elsewhere differs in fonts and anti-aliasing.
+- The config sets what the site needs: the access headers, `ignoreHTTPSErrors`, `workers: 1`,
+  `animations: 'disabled'`, a `maxDiffPixelRatio` just above the noise of two clean runs.
+- Every spec masks what changes between runs: banners, prices, dates, counters, customer data.
+  Never raise the tolerance to hide a real diff.
+- A first run with no baseline only writes the images and proves nothing. A baseline is written
+  by a person's run and committed with the specs.
+- A failure leaves `expected`, `actual` and `diff` images. Open the diff. A real regression is
+  fixed in the view files. A wanted change is reported to the user, who approves the new baseline.
+  An agent never runs `--update` on its own.

@@ -232,6 +232,9 @@ flowchart TD
 - Ảnh đạt khi cho thấy đúng điều requirement nói ở độ rộng đó, trang không cuộn ngang, và console
   không có lỗi mà trang chưa có trước khi sửa.
 - Bằng chứng thuộc về bản sửa cuối: sửa thêm là mọi ảnh cũ hết hiệu lực.
+- Ngoài requirement, dự án có thể giữ một bộ hồi quy Playwright Test: mỗi trang chính và độ rộng
+  một spec `toHaveScreenshot()`, so với baseline đã commit. Bộ này chạy khi đổi style hoặc layout
+  dùng chung. Agent không bao giờ tự cập nhật baseline: người dùng duyệt.
 
 ## Unit test
 
