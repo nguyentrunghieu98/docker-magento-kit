@@ -19,4 +19,4 @@ jobs:
       - name: shellcheck the kit scripts and tests
         run: |
           shellcheck -x tests/*.sh
-          shellcheck -x -S warning docker/bin/wt docker/bin/test/unit docker/bin/phpcs docker/bin/docker-compose agents/hooks/*.sh
+          shellcheck -x -S warning sync docker/bin/wt docker/bin/test/unit docker/bin/phpcs docker/bin/docker-compose agents/hooks/*.sh

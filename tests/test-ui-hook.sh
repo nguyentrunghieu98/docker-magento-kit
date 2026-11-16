@@ -9,7 +9,7 @@ set -Eeuo pipefail
 # shellcheck source=tests/lib.sh
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)/lib.sh"
 
-HOOK="$KIT_REPO_ROOT/agents/hooks/ui-conventions.sh"
+HOOK="$REPO_ROOT/agents/hooks/ui-conventions.sh"
 RULES='docs/agents/ui-conventions.md'
 
 new_project() {

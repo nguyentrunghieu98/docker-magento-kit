@@ -13,17 +13,17 @@ set -Eeuo pipefail
 # shellcheck source=tests/lib.sh
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)/lib.sh"
 
-# Fake docker: `compose ... ps -q phpfpm` prints an id unless $KIT_TEST_NO_PHPFPM is set,
-# `inspect` prints an image name, `run` and `exec` exit with $KIT_TEST_EXIT (default 0).
+# Fake docker: `compose ... ps -q phpfpm` prints an id unless $TEST_NO_PHPFPM is set,
+# `inspect` prints an image name, `run` and `exec` exit with $TEST_EXIT (default 0).
 install_docker() {
   cat > "$SANDBOX/.fakebin/docker" <<'STUB'
 #!/usr/bin/env bash
 if [[ "${1:-}" == compose && "${2:-}" == version ]]; then exit 0; fi
-printf 'docker %s\n' "$*" >> "${KIT_LOG_DIR:?}/docker.log"
+printf 'docker %s\n' "$*" >> "${TEST_LOG_DIR:?}/docker.log"
 case "$*" in
-  *'ps -q phpfpm'*) [[ -n "${KIT_TEST_NO_PHPFPM:-}" ]] || printf 'cid-phpfpm\n' ;;
+  *'ps -q phpfpm'*) [[ -n "${TEST_NO_PHPFPM:-}" ]] || printf 'cid-phpfpm\n' ;;
   inspect*) printf 'shop/magento-php:8.2-fpm\n' ;;
-  run* | *' exec '*) exit "${KIT_TEST_EXIT:-0}" ;;
+  run* | *' exec '*) exit "${TEST_EXIT:-0}" ;;
 esac
 exit 0
 STUB
@@ -69,10 +69,10 @@ new_root() {
   # Stand-in for upstream bin/debug-cli.
   cat > "$ROOT/bin/debug-cli" <<'STUB'
 #!/usr/bin/env bash
-printf 'debug-cli %s\n' "$*" >> "${KIT_LOG_DIR:?}/docker.log"
+printf 'debug-cli %s\n' "$*" >> "${TEST_LOG_DIR:?}/docker.log"
 STUB
   chmod 755 "$ROOT/bin/debug-cli"
-  unset KIT_TEST_NO_PHPFPM KIT_TEST_EXIT TEST_PROCESSES
+  unset TEST_NO_PHPFPM TEST_EXIT TEST_PROCESSES
 }
 
 unit() {
@@ -80,7 +80,7 @@ unit() {
   run_in "$ROOT" bin/test/unit "$@"
 }
 
-calls() { cat "$KIT_LOG_DIR/docker.log" 2> /dev/null || true; }
+calls() { cat "$TEST_LOG_DIR/docker.log" 2> /dev/null || true; }
 
 test_info_with_scripts_and_paratest() {
   new_root script paratest
@@ -114,7 +114,7 @@ test_serial_on_active_checkout_uses_phpfpm() {
   unit app/code/Shop/Cart/Test/Unit/FooTest.php --filter testBar
   assert_status 0 'serial exits 0'
   assert_contains 'exec -T phpfpm composer test:unit -- --filter testBar app/code/Shop/Cart/Test/Unit/FooTest.php' 'serial runs the composer script in phpfpm' "$(calls)"
-  KIT_TEST_EXIT=1 unit app/code/Shop
+  TEST_EXIT=1 unit app/code/Shop
   assert_status 1 'the test exit code is passed through'
 }
 
@@ -157,7 +157,7 @@ test_wt_runs_in_a_throwaway_container() {
   assert_not_contains 'exec -T phpfpm' '--wt never runs inside the shared phpfpm' "$c"
   unit --wt main --parallel app/code/Shop
   assert_contains "-v $SRC:/var/www/html:ro" '--wt main also uses a container (one tmpfs per run)' "$(calls)"
-  KIT_TEST_EXIT=3 unit --wt feature-one app/code/Shop
+  TEST_EXIT=3 unit --wt feature-one app/code/Shop
   assert_status 3 'the container exit code is passed through'
 }
 
@@ -174,7 +174,7 @@ test_wt_refusals() {
   unit --wt main app/code/Shop
   assert_status 2 'src/ is refused once vendor/ follows another lock'
   new_root script paratest
-  KIT_TEST_NO_PHPFPM=1 unit --wt feature-one app/code/Shop
+  TEST_NO_PHPFPM=1 unit --wt feature-one app/code/Shop
   assert_status 2 'no running phpfpm exits 2'
   assert_contains 'bin/start' 'the error says to start the stack'
   unit --wt nope app/code/Shop

@@ -10,19 +10,19 @@ set -Eeuo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)/lib.sh"
 
 # Fake docker: `docker info` follows the online flag, `compose ps -q phpfpm` returns an id,
-# and `docker inspect` returns $KIT_TEST_MOUNT_SRC.
+# and `docker inspect` returns $TEST_MOUNT_SRC.
 install_docker() {
   cat > "$SANDBOX/.fakebin/docker" <<'STUB'
 #!/usr/bin/env bash
 if [[ "${1:-}" == compose && "${2:-}" == version ]]; then exit 0; fi
-printf 'docker %s\n' "$*" >> "${KIT_LOG_DIR:?}/docker.log"
+printf 'docker %s\n' "$*" >> "${TEST_LOG_DIR:?}/docker.log"
 case "$*" in
   info*)
-    [[ -e "${KIT_DOCKER_ONLINE:?}" ]] && exit 0
+    [[ -e "${TEST_DOCKER_ONLINE:?}" ]] && exit 0
     exit 1
     ;;
   *'ps -q phpfpm'*) printf 'cid-phpfpm\n' ;;
-  inspect*) printf '%s\n' "${KIT_TEST_MOUNT_SRC:-}" ;;
+  inspect*) printf '%s\n' "${TEST_MOUNT_SRC:-}" ;;
 esac
 exit 0
 STUB
@@ -232,19 +232,19 @@ test_doctor_mount_mismatch() {
   set_docker_online
   wt create feature/one
   wt use feature-one
-  export KIT_TEST_MOUNT_SRC="$SRC"
+  export TEST_MOUNT_SRC="$SRC"
   wt doctor
   assert_status_nonzero 'doctor exits nonzero when the mount is wrong'
   assert_contains "mounts $SRC" 'doctor names the real mount'
   assert_contains "$ROOT/.worktrees/feature-one" 'doctor names the target of .active-src'
-  export KIT_TEST_MOUNT_SRC="$ROOT/.worktrees/feature-one"
-  : > "$KIT_LOG_DIR/docker.log"
+  export TEST_MOUNT_SRC="$ROOT/.worktrees/feature-one"
+  : > "$TEST_LOG_DIR/docker.log"
   wt doctor
   assert_status 0 'doctor exits 0 when the mount is right'
   assert_contains 'phpfpm mounts the right path' 'doctor confirms the mount'
-  assert_contains 'docker inspect' 'doctor uses docker inspect' "$(cat "$KIT_LOG_DIR/docker.log")"
-  assert_equals 1 "$(grep -c '^docker inspect' "$KIT_LOG_DIR/docker.log")" 'doctor calls docker inspect once'
-  unset KIT_TEST_MOUNT_SRC
+  assert_contains 'docker inspect' 'doctor uses docker inspect' "$(cat "$TEST_LOG_DIR/docker.log")"
+  assert_equals 1 "$(grep -c '^docker inspect' "$TEST_LOG_DIR/docker.log")" 'doctor calls docker inspect once'
+  unset TEST_MOUNT_SRC
 }
 
 test_doctor_clean_offline() {

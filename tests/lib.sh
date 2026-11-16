@@ -10,7 +10,7 @@
 # Lifted from tests/test-magento-wt.sh of the Format project (assert_* functions,
 # mktemp sandbox, fake docker).
 
-KIT_REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 ORIG_PATH="$PATH"
 
 CHECKS=0
@@ -213,15 +213,15 @@ assert_file_line_count() {
 # Assert a docker command (through the fake docker) was called / was not called.
 assert_docker_called() {
   local needle="$1" desc="$2"
-  assert_file_matches "$KIT_LOG_DIR/docker.log" "$(printf '%s' "$needle" | sed 's/[][\.*^$/]/\\&/g')" "$desc"
+  assert_file_matches "$TEST_LOG_DIR/docker.log" "$(printf '%s' "$needle" | sed 's/[][\.*^$/]/\\&/g')" "$desc"
 }
 
 assert_docker_not_called() {
   local desc="$1"
-  if [[ ! -s "$KIT_LOG_DIR/docker.log" ]]; then
+  if [[ ! -s "$TEST_LOG_DIR/docker.log" ]]; then
     pass_ "$desc"
   else
-    fail_ "$desc" "docker was called: $(_snippet "$(cat "$KIT_LOG_DIR/docker.log")")"
+    fail_ "$desc" "docker was called: $(_snippet "$(cat "$TEST_LOG_DIR/docker.log")")"
   fi
 }
 
@@ -241,25 +241,25 @@ cleanup_sandboxes() {
 }
 trap cleanup_sandboxes EXIT
 
-# Temp directory with a fake .fakebin/docker and .logs/. Sets SANDBOX, KIT_LOG_DIR, PATH.
+# Temp directory with a fake .fakebin/docker and .logs/. Sets SANDBOX, TEST_LOG_DIR, PATH.
 # The fake docker writes `docker <args>` to .logs/docker.log and never talks to the
-# daemon. `docker info` exits 0 while $KIT_DOCKER_ONLINE exists.
+# daemon. `docker info` exits 0 while $TEST_DOCKER_ONLINE exists.
 sandbox_new() {
   SANDBOX="$(mktemp -d "${TMPDIR:-/tmp}/kit-test.XXXXXX")"
   SANDBOX="$(realpath "$SANDBOX")"
   SANDBOXES+=("$SANDBOX")
 
   mkdir -p "$SANDBOX/.fakebin" "$SANDBOX/.logs"
-  export KIT_LOG_DIR="$SANDBOX/.logs"
-  export KIT_DOCKER_ONLINE="$SANDBOX/.docker-online"
+  export TEST_LOG_DIR="$SANDBOX/.logs"
+  export TEST_DOCKER_ONLINE="$SANDBOX/.docker-online"
   export PATH="$SANDBOX/.fakebin:$ORIG_PATH"
 
   cat > "$SANDBOX/.fakebin/docker" <<'STUB'
 #!/usr/bin/env bash
 # Fake docker: log the command, never talk to the daemon.
-printf 'docker %s\n' "$*" >> "${KIT_LOG_DIR:?}/docker.log"
+printf 'docker %s\n' "$*" >> "${TEST_LOG_DIR:?}/docker.log"
 if [[ "${1:-}" == 'info' ]]; then
-  [[ -e "${KIT_DOCKER_ONLINE:?}" ]] && exit 0
+  [[ -e "${TEST_DOCKER_ONLINE:?}" ]] && exit 0
   exit 1
 fi
 exit 0
@@ -267,9 +267,9 @@ STUB
   chmod 755 "$SANDBOX/.fakebin/docker"
 }
 
-set_docker_online() { : > "$KIT_DOCKER_ONLINE"; }
-set_docker_offline() { rm -f "$KIT_DOCKER_ONLINE"; }
-reset_calls() { rm -f "$KIT_LOG_DIR"/*.log; }
+set_docker_online() { : > "$TEST_DOCKER_ONLINE"; }
+set_docker_offline() { rm -f "$TEST_DOCKER_ONLINE"; }
+reset_calls() { rm -f "$TEST_LOG_DIR"/*.log; }
 
 # Set up a bare git remote in the sandbox with master and staging branches, one
 # commit each. Sets BARE_REMOTE. Uses real git.
@@ -313,7 +313,7 @@ run_in() {
 root_new() {
   ROOT="$SANDBOX/${1:-root}"
   mkdir -p "$ROOT"
-  cp -a "$KIT_REPO_ROOT/docker/." "$ROOT/"
+  cp -a "$REPO_ROOT/docker/." "$ROOT/"
   # Stand-in for the upstream markshust bin/magento (bin/cli -> compose exec phpfpm).
   cat > "$ROOT/bin/magento" <<'STUB'
 #!/usr/bin/env bash

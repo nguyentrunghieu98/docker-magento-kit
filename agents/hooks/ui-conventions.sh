@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 # PreToolUse hook (Claude Edit|Write|MultiEdit, Codex apply_patch): when an edit targets a
-# UI file under app/code or app/design, inject the project's UI rules into the agent
+# UI file under the app source tree, inject the project's UI rules into the agent
 # context. Full text once per session, a one-line reminder afterwards. Silent otherwise.
 #
-#   ui-conventions.sh <rules path relative to the Magento root>
+#   ui-conventions.sh <rules path relative to the project root>
 #   e.g. "$CLAUDE_PROJECT_DIR"/.agents/hooks/ui-conventions.sh docs/agents/ui-conventions.md
 #
 # The rules come from the checkout being edited, else from <project>/src. Missing rules
 # print a warning on stderr and never block the edit.
 rules="${1:-}"
 if [ -z "$rules" ]; then
-  echo "Usage: ui-conventions.sh <rules path relative to the Magento root>" >&2
+  echo "Usage: ui-conventions.sh <rules path relative to the project root>" >&2
   exit 1
 fi
 
