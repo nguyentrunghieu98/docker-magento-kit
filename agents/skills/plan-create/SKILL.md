@@ -1,6 +1,6 @@
 ---
 name: plan-create
-description: Plan a feature or a change across several files with the user, as tasks whose requirements are test names, critiqued before any code. Use when the user asks for a feature, an enhancement or a multi-file change. Not for a one-line fix, a question or documentation.
+description: Plan a feature or a change across several files with the user, as tasks whose requirements are test names, critiqued before any code. Use when the user asks for a feature, an enhancement or a multi-file change that `AGENTS.md` sends to the plan lane. Not for a quick-lane fix, a one-line fix, a question or documentation.
 ---
 
 # plan-create
@@ -8,7 +8,9 @@ description: Plan a feature or a change across several files with the user, as t
 Planning is done with the user. Execution is `plan-orchestrate`. This skill writes no production
 code and creates no branch until the user approves the plan.
 
-Read first: `AGENTS.md`, then the project references it names. The plan format is in
+Read first: `AGENTS.md`, then the project references it names. If `AGENTS.md` defines a quick lane
+and the change fits it (small, no heavy trigger) and the user did not ask for a plan, stop: say it
+fits the quick lane and work it there. The number of files alone never decides the lane. The plan format is in
 `references/task-format.md` of this skill.
 
 ## Steps

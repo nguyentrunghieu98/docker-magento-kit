@@ -39,7 +39,12 @@ and what changes the commands (how commands run, the exact test command, the gat
 ## 3. Write AGENTS.md
 
 Write it by hand, never a generator, in the agent root. Sections in this order: Hard boundary,
-Running commands, Checkouts, How to work, Project references, Git, Project specifics. Keep it under
+Running commands, Checkouts, How to work, Language, Project references, Git, Project specifics. `How to work` defines two lanes: a quick lane (default: a UI tweak or small fix, a file ceiling the
+user picks, no heavy trigger, no plan) and a plan lane (`plan-create`, only when the user asks or a
+heavy trigger applies: schema, data, payment-like flows, a new module, shared behavior, an open
+design decision). Ask the user for the ceiling and the heavy triggers. `Language` states the
+language of everything a human reads (plans, critiques, MR text, replies) and what stays English
+(parsed field keys, test names, code, commands, branch names). Keep it under
 120 lines: every line is loaded on every turn. State that the Docker commands run from the Docker
 root (`../bin/...` from the agent root).
 

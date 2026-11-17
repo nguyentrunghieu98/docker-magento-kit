@@ -189,7 +189,7 @@ flowchart TD
 
 | Skill | When |
 |---|---|
-| `plan-create` | a feature or a change across several files, planned with the user |
+| `plan-create` | the plan lane: a feature or a heavy-trigger change, planned with the user. Small fixes use the quick lane in `AGENTS.md` |
 | `plan-orchestrate` | an approved plan: tasks in order, gates, review, commit |
 | `project-setup` | once per project, or when adopting an existing Docker root |
 | `project-update` | the kit changed: report the drift, copy on approval, check `AGENTS.md` |
