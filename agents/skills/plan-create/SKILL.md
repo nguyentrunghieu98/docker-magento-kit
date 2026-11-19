@@ -8,9 +8,14 @@ description: Plan a feature or a change across several files with the user, as t
 Planning is done with the user. Execution is `plan-orchestrate`. This skill writes no production
 code and creates no branch until the user approves the plan.
 
-Read first: `AGENTS.md`, then the project references it names. If `AGENTS.md` defines a quick lane
-and the change fits it (small, no heavy trigger) and the user did not ask for a plan, stop: say it
-fits the quick lane and work it there. The number of files alone never decides the lane. The plan format is in
+Read first: `AGENTS.md`, then the project references it names. Then check that a plan is wanted:
+
+- The message asks a question or discusses the process, and only names this skill: stop, say so,
+  and answer it. A harness can start the skill from its name written in a sentence.
+- `AGENTS.md` defines a quick lane, the change fits it (small, no heavy trigger) and the user did
+  not ask for a plan: stop, say it fits the quick lane and work it there.
+
+The number of files alone never decides the lane. The plan format is in
 `references/task-format.md` of this skill.
 
 ## Steps
@@ -20,7 +25,9 @@ fits the quick lane and work it there. The number of files alone never decides t
    the design axes the request leaves open.
 
 2. **Ask.** Two groups, in one message:
-   - *must answer*: questions that change scope, data, schema or architecture;
+   - *must answer*: questions that change scope, data, schema or architecture. For a bug fix
+     where more than one correction removes the symptom, which correction: name where the
+     remainder, the rounding or the side effect goes in each;
    - *default unless you say otherwise*: each with the default you will use.
    Wait for the answers to the first group. Do not ask what the code can answer.
 

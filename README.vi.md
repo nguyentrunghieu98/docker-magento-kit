@@ -187,7 +187,7 @@ flowchart TD
 
 | Skill | Khi nào |
 |---|---|
-| `plan-create` | tính năng hoặc thay đổi nhiều file, lập kế hoạch cùng người dùng |
+| `plan-create` | làn plan: tính năng hoặc thay đổi dính nhóm nặng, lập kế hoạch cùng người dùng. Sửa nhỏ đi làn nhanh trong `AGENTS.md` |
 | `plan-orchestrate` | kế hoạch đã duyệt: task theo thứ tự, gate, review, commit |
 | `project-setup` | một lần cho mỗi dự án, hoặc khi nhận một Docker root có sẵn |
 | `project-update` | kit đã đổi: báo phần lệch, chép khi được duyệt, kiểm `AGENTS.md` |
