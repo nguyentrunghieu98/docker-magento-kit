@@ -41,9 +41,13 @@ request. Run the line for every kind of file you changed, then reload the page.
 ```bash
 <browser> open https://magento.test/customer/account/create
 <browser> resize 390 844
-<browser> screenshot --full-page --filename <plan>/evidence/03-1-390.png
+<browser> screenshot --filename <plan>/evidence/03-1-390.png
 <browser> console error
 ```
+
+- Screenshot the viewport, or the element of the requirement. `--full-page` only when the
+  requirement is about the whole page: a long page is scaled down until text is unreadable.
+- Open the image only to judge a `ui:` requirement, once per requirement and width.
 
 ## Widths
 
