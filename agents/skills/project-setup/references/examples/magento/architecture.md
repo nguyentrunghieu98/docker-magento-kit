@@ -47,6 +47,18 @@ bin/wt doctor                    # compare the phpfpm mount with .active-src
 - `src/.gitignore` is a whitelist, so a fresh worktree lacks generated core files. `bin/wt create`
   and `prepare` copy them. A 404 right after a switch usually means they are missing.
 
+## Searching
+
+- Never `find /` or `find ~`: it scans the whole disk and runs into the command timeout.
+- Code: `rg -n` scoped to the custom code directories or one module, never the whole `vendor/`,
+  `generated/`, `pub/static/` or `var/`.
+- Locate first, then read: `rg -n` for the line, then `sed -n '<from>,<to>p'` around it. Never cat
+  a whole template, test or class over about 150 lines.
+- Git: `git status --short`, `git diff --stat` first, then `git diff -- <file>` for the files you
+  need. Never a bare `git diff` on a whole branch.
+- `AGENTS.md` is already loaded: never read it again. Read a reference once per session, only the
+  one the task needs.
+
 ## Setup
 
 `<memory, ports and local URLs>`.
