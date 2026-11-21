@@ -3,6 +3,7 @@
 #
 #   bin/test/unit --info [--wt <name>]
 #   bin/test/unit [--wt <name>] [--parallel] <path> [--filter <regex>]
+#   bin/test/unit --wt <name> --all
 #   bin/test/unit --xdebug|--coverage <path>
 #
 # The command comes from the project's composer scripts test:unit / test:unit:parallel,
@@ -28,11 +29,13 @@ usage() {
   cat <<'USAGE'
 Usage: bin/test/unit --info [--wt <name>]
        bin/test/unit [--wt <name>] [--parallel] <path> [--filter <regex>]
+       bin/test/unit --wt <name> --all
        bin/test/unit --xdebug|--coverage <path>
 
   --info            Print what this runner will do (checkout, PHPUnit, ParaTest, commands)
   --wt <name>       Run on that worktree (bin/wt path <name>) in a throwaway container
-  --parallel        ParaTest. Exit 2 when ParaTest is not installed
+  --parallel        ParaTest. Exit 2 when ParaTest is not installed. Slower than serial on small suites
+  --all             Every Test/Unit of app/code/Format and app/code/Magenest in one serial run
   --filter <regex>  Serial only
   --xdebug          PHPUnit through bin/debug-cli, active checkout only
   --coverage        HTML coverage in dev/tests/unit/report, active checkout only
@@ -42,12 +45,13 @@ TEST_PROCESSES sets the ParaTest process count (default 2) when there is no comp
 USAGE
 }
 
-info=0 parallel=0 debug='' wt='' filter='' path=''
+info=0 all=0 parallel=0 debug='' wt='' filter='' path=''
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -h | --help) usage; exit 0 ;;
     --info) info=1; shift ;;
     --parallel) parallel=1; shift ;;
+    --all) all=1; shift ;;
     --xdebug | --coverage) debug="${1#--}"; shift ;;
     --wt)
       [[ $# -ge 2 && -n "$2" ]] || die '--wt needs a worktree name'
@@ -110,7 +114,23 @@ if [[ "$info" -eq 1 ]]; then
   exit 0
 fi
 
-[[ -n "$path" ]] || { usage >&2; exit 2; }
+[[ -n "$path" || "$all" -eq 1 ]] || { usage >&2; exit 2; }
+
+# ---- --all: every custom Test/Unit in one serial run -------------------------
+if [[ "$all" -eq 1 ]]; then
+  [[ -n "$wt" && -z "$path" && -z "$filter" && -z "$debug" && "$parallel" -eq 0 ]] \
+    || die '--all is only: bin/test/unit --wt <name> --all'
+  read -r -d '' ALL_SCRIPT <<'SH' || true
+set -e
+cd /var/www/html
+dirs=$(ls -d app/code/Format/*/Test/Unit app/code/Magenest/*/Test/Unit 2>/dev/null || true)
+[ -n "$dirs" ] || { echo 'No Test/Unit directory in app/code/Format or app/code/Magenest' >&2; exit 2; }
+php -r '$x=file_get_contents("dev/tests/unit/phpunit.xml.dist");$d="";foreach(array_slice($argv,1) as $p){$d.="<directory>../../../".$p."</directory>";}$x=preg_replace("#<testsuites>.*?</testsuites>#s","<testsuites><testsuite name=\"all\">".$d."</testsuite></testsuites>",$x);file_put_contents("dev/tests/unit/phpunit-all.xml",$x);' $dirs
+b=''; [ -f scripts/testing/bootstrap.php ] && b='--bootstrap scripts/testing/bootstrap.php'
+exec vendor/bin/phpunit --configuration dev/tests/unit/phpunit-all.xml $b
+SH
+  exec "$ROOT/bin/wt" run "$wt" sh -c "$ALL_SCRIPT"
+fi
 
 # ---- xdebug / coverage: upstream bin/debug-cli on the active checkout ---------
 if [[ -n "$debug" ]]; then
