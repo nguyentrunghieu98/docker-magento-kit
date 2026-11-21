@@ -23,7 +23,7 @@ A `manual:` or `gate:` requirement: do what it says if you can, otherwise leave 
 
 ## When every requirement is ticked
 
-- Run the module's `Test/Unit` (parallel only when `--info` allows it) and the PHPCS gate on the
+- Run the module's `Test/Unit` as the project testing reference says (serial) and the PHPCS gate on the
   files you changed. Paste both result lines under `## Implementation notes`.
 - Print `TASK_COMPLETE` as the last line.
 
