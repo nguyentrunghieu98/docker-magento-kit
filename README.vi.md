@@ -189,6 +189,7 @@ flowchart TD
 |---|---|
 | `plan-create` | làn plan: tính năng hoặc thay đổi dính nhóm nặng, lập kế hoạch cùng người dùng. Sửa nhỏ đi làn nhanh trong `AGENTS.md` |
 | `plan-orchestrate` | kế hoạch đã duyệt: task theo thứ tự, gate, review, commit |
+| `no-comments` | dọn comment nhánh thêm vào bằng `comment-sicko`, sửa các flag được chấp nhận |
 | `project-setup` | một lần cho mỗi dự án, hoặc khi nhận một Docker root có sẵn |
 | `project-update` | kit đã đổi: báo phần lệch, chép khi được duyệt, kiểm `AGENTS.md` |
 
@@ -199,6 +200,7 @@ flowchart TD
 | `tdd-worker` | làm một task file, RED rồi GREEN cho từng requirement |
 | `ui-worker` | làm một task UI, mỗi requirement `ui:` một ảnh chụp |
 | `standards-enforcer` | sửa chuẩn code mà không đổi hành vi, mặc định tắt |
+| `comment-sicko` | xóa comment nhánh thêm vào, đánh dấu code cần đổi hình, mặc định tắt |
 | `diff-reviewer` | review diff trước khi commit, chỉ đọc |
 
 ## Test UI
@@ -317,8 +319,8 @@ cách dùng.
 | `docker/bin/phpcs` | File của upstream, thêm `--wt <name>` |
 | `docker/bin/watch` | Watcher frontend đi theo `.active-src` |
 | `docker/conf/php/opcache.ini` | Cấu hình OPcache cho môi trường dev |
-| `agents/skills/` | Bốn skill: `plan-create`, `plan-orchestrate`, `project-update`, `project-setup` |
-| `agents/agents/` | Sáu role: `code-researcher`, `devils-advocate`, `tdd-worker`, `ui-worker`, `standards-enforcer`, `diff-reviewer` |
+| `agents/skills/` | Năm skill: `plan-create`, `plan-orchestrate`, `no-comments`, `project-update`, `project-setup` |
+| `agents/agents/` | Bảy role: `code-researcher`, `devils-advocate`, `tdd-worker`, `ui-worker`, `standards-enforcer`, `comment-sicko`, `diff-reviewer` |
 | `agents/hooks/` | Ba hook: `ui-conventions.sh`, `guard-paths.sh`, `kit-drift.sh` |
 
 ## Test
