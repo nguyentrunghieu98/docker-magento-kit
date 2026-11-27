@@ -53,6 +53,9 @@ reason, and stop.
 
 Only when `AGENTS.md` turns `standards-enforcer` on: run it once on the whole diff.
 
+Only when `AGENTS.md` turns `comment-sicko` on: run the `no-comments` skill once on the whole diff,
+after `standards-enforcer`.
+
 ## 4. Final gates
 
 Once, in order, after the last edit. Use the gate matrix in the project's testing reference for

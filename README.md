@@ -191,6 +191,7 @@ flowchart TD
 |---|---|
 | `plan-create` | the plan lane: a feature or a heavy-trigger change, planned with the user. Small fixes use the quick lane in `AGENTS.md` |
 | `plan-orchestrate` | an approved plan: tasks in order, gates, review, commit |
+| `no-comments` | clean the comments a branch added with `comment-sicko`, fix accepted flags |
 | `project-setup` | once per project, or when adopting an existing Docker root |
 | `project-update` | the kit changed: report the drift, copy on approval, check `AGENTS.md` |
 
@@ -201,6 +202,7 @@ flowchart TD
 | `tdd-worker` | implements one task file, RED then GREEN per requirement |
 | `ui-worker` | implements one UI task file, a screenshot per `ui:` requirement |
 | `standards-enforcer` | fixes standards without changing behavior, off by default |
+| `comment-sicko` | deletes the comments a branch added, flags code to reshape, off by default |
 | `diff-reviewer` | reviews the diff before a commit, read only |
 
 ## UI tests
@@ -320,8 +322,8 @@ project is in sync, when the kit path is wrong and on a usage error.
 | `docker/bin/phpcs` | Upstream file plus `--wt <name>` |
 | `docker/bin/watch` | Frontend watcher that follows `.active-src` |
 | `docker/conf/php/opcache.ini` | OPcache settings for development |
-| `agents/skills/` | Four skills: `plan-create`, `plan-orchestrate`, `project-update`, `project-setup` |
-| `agents/agents/` | Six roles: `code-researcher`, `devils-advocate`, `tdd-worker`, `ui-worker`, `standards-enforcer`, `diff-reviewer` |
+| `agents/skills/` | Five skills: `plan-create`, `plan-orchestrate`, `no-comments`, `project-update`, `project-setup` |
+| `agents/agents/` | Seven roles: `code-researcher`, `devils-advocate`, `tdd-worker`, `ui-worker`, `standards-enforcer`, `comment-sicko`, `diff-reviewer` |
 | `agents/hooks/` | Three hooks: `ui-conventions.sh`, `guard-paths.sh`, `kit-drift.sh` |
 
 ## Tests
